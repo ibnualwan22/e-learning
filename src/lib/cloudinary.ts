@@ -92,8 +92,10 @@ export async function deletePaymentProof(
   form.append("api_key", apiKey);
   form.append("timestamp", String(timestamp));
   form.append("signature", signature);
+  // Endpoint destroy milik Upload API (bukan Admin API /resources/...):
+  // POST /v1_1/<cloud>/<resource_type>/destroy
   await fetch(
-    `https://api.cloudinary.com/v1_1/${cloudName}/resources/${resourceType}/destroy`,
+    `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/destroy`,
     { method: "POST", body: form }
   );
 }
