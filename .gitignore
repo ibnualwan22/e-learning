@@ -42,3 +42,6 @@ next-env.d.ts
 
 # TOAFL: file audio yang diunggah admin (disimpan lokal di VPS, bukan di git)
 /public/uploads/
+
+# TOAFL Fase 3: bukti bayar (data sensitif, di luar public/, bukan di git)
+/uploads/
