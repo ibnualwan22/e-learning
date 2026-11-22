@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fafafa;
+  --foreground: #18181b;
+
+  /* Token warna landing: dasar putih + abu-abu + aksen emas */
+  --color-surface-base: #ffffff;
+  --color-surface-raised: #f4f4f5;
+  --color-surface-muted: #e4e4e7;
+  --color-surface-strong: #a16207;
+  --color-surface-strong-hover: #854d0e;
+  --color-surface-strong-active: #713f12;
+  --color-text-secondary: #52525b;
+  --color-text-tertiary: #18181b;
+  --color-border-muted: #d4d4d8;
+  --color-border-subtle: #e4e4e7;
+  --space-1: 20px;
+  --space-2: 40px;
+  --motion-duration-instant: 200ms;
+  --font-system-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-jakarta), sans-serif;
+  --font-arabic: var(--font-amiri), "Traditional Arabic", serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-jakarta), sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.font-design-system {
+  font-family: var(--font-system-stack);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.font-arabic {
+  font-family: var(--font-amiri), "Traditional Arabic", "Amiri", serif;
+  line-height: 2.1 !important;
+}
+
+::selection {
+  background: var(--color-surface-strong);
+  color: var(--color-surface-base);
+}

@@ -1,0 +1,793 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  CheckCircle2,
+  FolderPlus,
+  Search,
+  X,
+} from "lucide-react";
+import { renderRichText } from "@/lib/safeHtml";
+import { getTextDirection } from "@/lib/text-direction";
+
+interface OptionForm {
+  label: string;
+  content: string;
+  isCorrect: boolean;
+}
+
+interface QuestionRecord {
+  id: string;
+  categoryId: string | null;
+  category: { id: string; name: string } | null;
+  content: string;
+  direction: "RTL" | "LTR";
+  weight: number;
+  explanation: string | null;
+  options: {
+    id: string;
+    label: string;
+    content: string;
+    direction: "RTL" | "LTR";
+    isCorrect: boolean;
+  }[];
+}
+
+interface ImportPreviewRow {
+  index: number;
+  category: string;
+  categoryNew: boolean;
+  direction: "RTL" | "LTR";
+  weight: number;
+  contentHtml: string;
+  options: { label: string; html: string; plain: string }[];
+  keyLetter: string;
+  explanationHtml: string;
+  status: string;
+  errors: string[];
+}
+
+export default function AdminQuestionsPage() {
+  const [questions, setQuestions] = useState<QuestionRecord[]>([]);
+  const [categories, setCategories] = useState<
+    { id: string; name: string; description: string | null }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filterCat, setFilterCat] = useState("ALL");
+
+  // Modal Question Form State
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState("");
+  const [weight, setWeight] = useState(2);
+  const [content, setContent] = useState("");
+  const [explanation, setExplanation] = useState("");
+  const [options, setOptions] = useState<OptionForm[]>([
+    { label: "A", content: "", isCorrect: true },
+    { label: "B", content: "", isCorrect: false },
+    { label: "C", content: "", isCorrect: false },
+    { label: "D", content: "", isCorrect: false },
+  ]);
+  const [saving, setSaving] = useState(false);
+
+  // New Category Modal
+  const [showCatModal, setShowCatModal] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatDesc, setNewCatDesc] = useState("");
+
+  // Import Excel State
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [previewRows, setPreviewRows] = useState<ImportPreviewRow[] | null>(
+    null
+  );
+  const [previewError, setPreviewError] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState("");
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/questions");
+      const data = await res.json();
+      setQuestions(data.questions || []);
+      setCategories(data.categories || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Default soal manual baru: kategori "Olimpiade" (bila ada) dan bobot 2
+  // — mempercepat input soal lomba (50 soal x bobot 2 = 100).
+  function openCreateModal() {
+    setEditingId(null);
+    const defaultCat =
+      categories.find((c) => c.name.toLowerCase() === "olimpiade") ||
+      categories[0];
+    setCategoryId(defaultCat?.id || "");
+    setWeight(2);
+    setContent("");
+    setExplanation("");
+    setOptions([
+      { label: "A", content: "", isCorrect: true },
+      { label: "B", content: "", isCorrect: false },
+      { label: "C", content: "", isCorrect: false },
+      { label: "D", content: "", isCorrect: false },
+    ]);
+    setShowModal(true);
+  }
+
+  function openEditModal(q: QuestionRecord) {
+    setEditingId(q.id);
+    setCategoryId(q.categoryId || "");
+    setWeight(q.weight);
+    setContent(q.content);
+    setExplanation(q.explanation || "");
+    setOptions(
+      q.options.map((o) => ({
+        label: o.label,
+        content: o.content,
+        isCorrect: o.isCorrect,
+      }))
+    );
+    setShowModal(true);
+  }
+
+  async function handleSaveQuestion(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+
+    try {
+      const url = editingId
+        ? `/api/admin/questions/${editingId}`
+        : "/api/admin/questions";
+      const method = editingId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          categoryId: categoryId || null,
+          // Arah tulisan dideteksi otomatis dari isi (helper yang sama dengan
+          // halaman ujian): soal Indonesia -> LTR, soal Arab -> RTL, dan tiap
+          // opsi ikut bahasanya sendiri — bukan lagi satu arah untuk semua.
+          direction: getTextDirection(content),
+          weight: Number(weight),
+          content,
+          explanation,
+          options: options.map((o, idx) => ({
+            label: String.fromCharCode(65 + idx),
+            content: o.content,
+            isCorrect: o.isCorrect,
+            direction: getTextDirection(o.content),
+          })),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Gagal menyimpan soal");
+        return;
+      }
+
+      setShowModal(false);
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteQuestion(id: string) {
+    if (!confirm("Yakin ingin menghapus soal ini dari Bank Soal?")) return;
+    await fetch(`/api/admin/questions/${id}`, { method: "DELETE" });
+    await loadData();
+  }
+
+  async function handleCreateCategory(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newCatName.trim()) return;
+    const res = await fetch("/api/admin/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newCatName, description: newCatDesc }),
+    });
+    if (res.ok) {
+      setNewCatName("");
+      setNewCatDesc("");
+      setShowCatModal(false);
+      await loadData();
+    }
+  }
+
+  async function handlePreviewUpload() {
+    if (!importFile) return;
+    setImporting(true);
+    setPreviewError("");
+    setImportResult("");
+    try {
+      const form = new FormData();
+      form.append("file", importFile);
+      const res = await fetch("/api/admin/questions/import", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPreviewError(data.error || "Gagal membaca file Excel");
+        setPreviewRows(null);
+        return;
+      }
+      setPreviewRows(data.rows || []);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!previewRows) return;
+    setImporting(true);
+    try {
+      const res = await fetch("/api/admin/questions/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: previewRows }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Gagal mengimpor soal");
+        return;
+      }
+      const skippedText =
+        data.skipped?.length > 0
+          ? `, dilewati ${data.skipped.length}`
+          : "";
+      setImportResult(
+        `Impor selesai: ${data.created} soal dibuat${skippedText}.`
+      );
+      setPreviewRows(null);
+      setImportFile(null);
+      await loadData();
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const filteredQuestions = questions.filter((q) => {
+    const matchCat = filterCat === "ALL" || q.categoryId === filterCat;
+    const matchSearch =
+      !search.trim() ||
+      q.content.toLowerCase().includes(search.toLowerCase()) ||
+      q.category?.name.toLowerCase().includes(search.toLowerCase());
+    return matchCat && matchSearch;
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-zinc-900">
+            Manajemen Bank Soal &amp; Bobot
+          </h1>
+          <p className="text-sm text-zinc-500 mt-0.5">
+            Kelola soal pilihan ganda berbahasa Arab maupun Indonesia beserta
+            opsi dan bobot nilainya. Arah tulisan (RTL/LTR) menyesuaikan isi
+            teks secara otomatis — sama seperti yang dilihat peserta di halaman
+            ujian.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setShowCatModal(true)}
+            className="px-4 py-2.5 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-700 font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <FolderPlus className="w-4 h-4 text-yellow-700" />
+            <span>Kategori Materi</span>
+          </button>
+          <button
+            onClick={openCreateModal}
+            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Soal Baru</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="bg-white rounded-xl border border-zinc-200 p-4 flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -tranzinc-y-1/2" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari teks soal atau nama kategori..."
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-zinc-200 text-sm outline-none focus:border-yellow-500"
+          />
+        </div>
+        <select
+          value={filterCat}
+          onChange={(e) => setFilterCat(e.target.value)}
+          className="px-4 py-2 rounded-xl border border-zinc-200 text-sm bg-white outline-none focus:border-yellow-500"
+        >
+          <option value="ALL">Semua Kategori ({questions.length})</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Impor Soal dari Excel */}
+      <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-4 shadow-xs">
+        <div>
+          <h2 className="text-sm font-extrabold text-zinc-900">
+            Impor Soal dari Excel
+          </h2>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Kolom: Kategori | Arah | Bobot | Soal | Opsi A | Opsi B | Opsi
+            C | Opsi D | Kunci | Pembahasan. Format tebal, garis bawah, dan
+            miring pada sel ikut terimpor; karakter liar dibersihkan otomatis
+            dan harakat dipertahankan. Kategori yang belum ada dibuat baru.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <a
+            href="/api/admin/questions/import-template"
+            className="px-4 py-2 rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-xs font-semibold text-center cursor-pointer"
+          >
+            Unduh Template Excel
+          </a>
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => {
+              setImportFile(e.target.files?.[0] || null);
+              setPreviewRows(null);
+              setPreviewError("");
+            }}
+            className="flex-1 px-3 py-2 rounded-xl border border-zinc-200 text-xs"
+          />
+          <button
+            onClick={handlePreviewUpload}
+            disabled={!importFile || importing}
+            className="px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+          >
+            {importing ? "Memproses..." : "Pratinjau Impor"}
+          </button>
+        </div>
+
+        {previewError && (
+          <p className="text-xs font-bold text-red-600">{previewError}</p>
+        )}
+        {importResult && (
+          <p className="text-xs font-bold text-emerald-700">{importResult}</p>
+        )}
+
+        {previewRows && (
+          <div className="space-y-3">
+            <div className="overflow-x-auto border border-zinc-200 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-zinc-50 border-b border-zinc-200 font-bold text-zinc-500">
+                    <th className="p-2.5">Baris</th>
+                    <th className="p-2.5">Soal</th>
+                    <th className="p-2.5">Kategori</th>
+                    <th className="p-2.5">Bobot</th>
+                    <th className="p-2.5">Kunci</th>
+                    <th className="p-2.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {previewRows.map((r, i) => (
+                    <tr key={i}>
+                      <td className="p-2.5">{r.index}</td>
+                      <td className="p-2.5 max-w-100" dir={getTextDirection(r.contentHtml) === "RTL" ? "rtl" : "ltr"}>
+                        {renderRichText(r.contentHtml)}
+                      </td>
+                      <td className="p-2.5">
+                        {r.category || "-"}
+                        {r.categoryNew && " (baru)"}
+                      </td>
+                      <td className="p-2.5">{r.weight}</td>
+                      <td className="p-2.5">{r.keyLetter}</td>
+                      <td className="p-2.5">
+                        {r.status === "valid" ? (
+                          "Valid"
+                        ) : (
+                          <span className="text-red-600 font-bold">
+                            {r.errors.join("; ")}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPreviewRows(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-100 text-zinc-700 text-xs font-semibold cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleConfirmImport}
+                disabled={importing}
+                className="px-5 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+              >
+                {importing ? "Mengimpor..." : "Konfirmasi & Buat Soal"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Question List */}
+      {loading ? (
+        <div className="p-12 text-center text-sm text-zinc-500">
+          Memuat bank soal...
+        </div>
+      ) : filteredQuestions.length === 0 ? (
+        <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center text-sm text-zinc-500">
+          Belum ada soal pada filter ini. Klik &ldquo;Tambah Soal Baru&rdquo;
+          untuk membuat soal.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredQuestions.map((q, idx) => (
+            <div
+              key={q.id}
+              className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6 shadow-xs space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-lg bg-zinc-900 text-white font-bold text-xs">
+                    #{idx + 1}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-yellow-50 border border-yellow-200 text-zinc-800 font-semibold text-xs">
+                    {q.category?.name || "Tanpa Kategori"}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900 font-bold text-xs">
+                    Bobot: {q.weight} Poin
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-xs font-mono">
+                    {getTextDirection(q.content)}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openEditModal(q)}
+                    className="px-3 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteQuestion(q.id)}
+                    className="px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Hapus
+                  </button>
+                </div>
+              </div>
+
+              <div
+                dir={getTextDirection(q.content) === "RTL" ? "rtl" : "ltr"}
+                className={`p-4 rounded-xl bg-yellow-50/40 border border-yellow-200/60 text-zinc-900 whitespace-pre-line ${getTextDirection(q.content) === "RTL"
+                  ? "font-arabic text-2xl text-right"
+                  : "text-sm sm:text-base"
+                  }`}
+              >
+                {renderRichText(q.content)}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {q.options.map((opt) => (
+                  <div
+                    key={opt.id}
+                    className={`p-3 rounded-xl border flex items-center gap-3 ${opt.isCorrect
+                      ? "bg-yellow-50 border-yellow-400 text-zinc-900"
+                      : "bg-zinc-50/70 border-zinc-200 text-zinc-700"
+                      }`}
+                  >
+                    <span
+                      className={`w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 ${opt.isCorrect
+                        ? "bg-zinc-900 text-white"
+                        : "bg-zinc-200 text-zinc-700"
+                        }`}
+                    >
+                      {opt.label}
+                    </span>
+                    <span
+                      dir={getTextDirection(opt.content) === "RTL" ? "rtl" : "ltr"}
+                      className={`flex-1 ${getTextDirection(opt.content) === "RTL"
+                        ? "font-arabic text-xl text-right"
+                        : "text-xs sm:text-sm"
+                        }`}
+                    >
+                      {renderRichText(opt.content)}
+                    </span>
+                    {opt.isCorrect && (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal Tambah/Edit Soal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 bg-zinc-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl max-w-3xl w-full p-6 shadow-2xl border border-zinc-200 my-8 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-200 mb-5">
+              <h2 className="text-lg font-bold text-zinc-900">
+                {editingId ? "Edit Soal Olimpiade" : "Tambah Soal Baru"}
+              </h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveQuestion} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">
+                    Kategori Materi
+                  </label>
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 text-sm bg-white"
+                  >
+                    <option value="">-- Pilih Kategori --</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">
+                    Bobot Nilai Soal (Poin)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    required
+                    value={weight}
+                    onChange={(e) => setWeight(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">
+                  Teks Pertanyaan Soal
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  dir={getTextDirection(content) === "RTL" ? "rtl" : "ltr"}
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder={
+                    getTextDirection(content) === "RTL"
+                      ? "اكتب نص السؤال هنا..."
+                      : "Ketik pertanyaan soal di sini..."
+                  }
+                  className={`w-full p-3.5 rounded-xl border border-zinc-300 outline-none focus:border-yellow-500 ${getTextDirection(content) === "RTL"
+                    ? "font-arabic text-2xl text-right"
+                    : "text-sm"
+                    }`}
+                />
+              </div>
+
+              {/* Opsi Jawaban */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-zinc-700">
+                    Opsi Pilihan Ganda (Klik bulatan untuk menentukan Kunci
+                    Jawaban Benar)
+                  </label>
+                  {options.length < 5 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOptions((prev) => [
+                          ...prev,
+                          {
+                            label: String.fromCharCode(65 + prev.length),
+                            content: "",
+                            isCorrect: false,
+                          },
+                        ])
+                      }
+                      className="text-xs font-bold text-yellow-700 hover:underline cursor-pointer"
+                    >
+                      + Tambah Opsi E
+                    </button>
+                  )}
+                </div>
+
+                {options.map((opt, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-3 p-3 rounded-xl border ${opt.isCorrect
+                      ? "border-emerald-500 bg-yellow-50/50"
+                      : "border-zinc-200 bg-zinc-50"
+                      }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOptions((prev) =>
+                          prev.map((o, i) => ({
+                            ...o,
+                            isCorrect: i === idx,
+                          }))
+                        )
+                      }
+                      className={`w-8 h-8 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 cursor-pointer ${opt.isCorrect
+                        ? "bg-zinc-900 text-white"
+                        : "bg-white border border-zinc-300 text-zinc-700"
+                        }`}
+                      title="Jadikan Kunci Jawaban"
+                    >
+                      {String.fromCharCode(65 + idx)}
+                    </button>
+
+                    <input
+                      type="text"
+                      required
+                      dir={getTextDirection(opt.content) === "RTL" ? "rtl" : "ltr"}
+                      value={opt.content}
+                      onChange={(e) =>
+                        setOptions((prev) =>
+                          prev.map((o, i) =>
+                            i === idx ? { ...o, content: e.target.value } : o
+                          )
+                        )
+                      }
+                      placeholder={`Teks opsi ${String.fromCharCode(65 + idx)}`}
+                      className={`flex-1 px-3 py-2 rounded-lg border border-zinc-300 bg-white outline-none ${getTextDirection(opt.content) === "RTL"
+                        ? "font-arabic text-xl text-right"
+                        : "text-sm"
+                        }`}
+                    />
+
+                    {options.length > 2 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOptions((prev) => prev.filter((_, i) => i !== idx))
+                        }
+                        className="text-zinc-400 hover:text-red-600 p-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">
+                  Catatan / Ta&apos;bir Pembahasan (Opsional untuk Admin)
+                </label>
+                <input
+                  type="text"
+                  value={explanation}
+                  onChange={(e) => setExplanation(e.target.value)}
+                  placeholder="Referensi kitab / penjelasan singkat jawaban benar"
+                  className="w-full px-3.5 py-2 rounded-xl border border-zinc-300 text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold text-xs cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs cursor-pointer"
+                >
+                  {saving ? "Menyimpan..." : "Simpan Soal"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Kategori */}
+      {showCatModal && (
+        <div className="fixed inset-0 z-50 bg-zinc-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border border-zinc-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
+              <h3 className="font-bold text-base text-zinc-900">
+                Tambah Kategori Materi (Fan Ilmu)
+              </h3>
+              <button
+                onClick={() => setShowCatModal(false)}
+                className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCategory} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">
+                  Nama Kategori / Fan
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="Contoh: Ilmu Ushul Fiqih (أصول الفقه)"
+                  className="w-full px-3.5 py-2 rounded-xl border border-zinc-300 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">
+                  Keterangan Kitab
+                </label>
+                <input
+                  type="text"
+                  value={newCatDesc}
+                  onChange={(e) => setNewCatDesc(e.target.value)}
+                  placeholder="Deskripsi singkat"
+                  className="w-full px-3.5 py-2 rounded-xl border border-zinc-300 text-sm"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCatModal(false)}
+                  className="px-4 py-2 rounded-xl bg-zinc-100 text-zinc-700 text-xs font-semibold cursor-pointer"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer"
+                >
+                  Tambah Kategori
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
