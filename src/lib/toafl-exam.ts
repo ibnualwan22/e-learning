@@ -314,3 +314,107 @@ export async function autoExpireCurrentSection(attemptId: string) {
   await finalizeSection(current.id, "TIME_UP");
   return advanceAfterSection(attemptId);
 }
+
+// State penuh satu attempt — bentuk kanonik yang sama dipakai route
+// state (GET) dan start/submit-section (POST), supaya klien selalu
+// mendapat section berjalan + skor + jawaban, baik saat mulai baru,
+// resume, maupun sesudah mengumpulkan maharoh. (Ditemukan saat
+// verifikasi Fase 4: start hanya mengembalikan attemptId tanpa
+// currentSection, dan submit-section hanya mengembalikan attempt.)
+export async function buildAttemptState(attemptId: string) {
+  const attempt = await prisma.attempt.findUnique({
+    where: { id: attemptId },
+    include: {
+      exam: {
+        include: {
+          level: { select: { id: true, name: true } },
+          maharohs: {
+            include: { maharoh: true },
+            orderBy: { orderIndex: "asc" },
+          },
+        },
+      },
+      sections: { orderBy: { createdAt: "asc" } },
+      answers: true,
+    },
+  });
+  if (!attempt) return null;
+
+  const currentSection =
+    attempt.status === "IN_PROGRESS"
+      ? (attempt.sections.find(
+          (s) =>
+            s.maharohId === attempt.currentMaharohId &&
+            s.status === "IN_PROGRESS"
+        ) ?? null)
+      : null;
+
+  const sections = attempt.sections.map((s) => {
+    const snap = s.snapshot as unknown as SectionSnapshot;
+    return {
+      id: s.id,
+      maharohId: s.maharohId,
+      maharohName: snap.maharohName,
+      status: s.status,
+      startedAt: s.startedAt,
+      expiresAt: s.expiresAt,
+      finishedAt: s.finishedAt,
+      score: s.score,
+      questionCount: snap.questions.length,
+    };
+  });
+
+  return {
+    serverTime: new Date().toISOString(),
+    attempt: {
+      id: attempt.id,
+      status: attempt.status,
+      startedAt: attempt.startedAt,
+      finishedAt: attempt.finishedAt,
+      timeSpentSeconds: attempt.timeSpentSeconds,
+      rawScore: attempt.rawScore,
+      finalScore: attempt.finalScore,
+      currentMaharohId: attempt.currentMaharohId,
+    },
+    exam: {
+      id: attempt.exam.id,
+      title: attempt.exam.title,
+      description: attempt.exam.description,
+      mode: attempt.exam.mode,
+      autoSubmitOnViolation: attempt.exam.autoSubmitOnViolation,
+      level: attempt.exam.level,
+      maharohs: attempt.exam.maharohs.map((m) => ({
+        id: m.maharoh.id,
+        name: m.maharoh.name,
+        orderIndex: m.orderIndex,
+        minutes: m.minutes,
+        questionCount: m.questionCount,
+        audioRepeats: m.audioRepeats,
+      })),
+    },
+    sections,
+    currentSection: currentSection
+      ? {
+          id: currentSection.id,
+          maharohId: currentSection.maharohId,
+          maharohName: (
+            currentSection.snapshot as unknown as SectionSnapshot
+          ).maharohName,
+          status: currentSection.status,
+          startedAt: currentSection.startedAt,
+          expiresAt: currentSection.expiresAt,
+          questions: stripSnapshotForClient(
+            currentSection.snapshot as unknown as SectionSnapshot
+          ).questions,
+        }
+      : null,
+    answers: attempt.answers.map((a) => ({
+      questionId: a.questionId,
+      maharohId: a.maharohId,
+      selectedOptionId: a.selectedOptionId,
+      isDoubtful: a.isDoubtful,
+      answeredAt: a.answeredAt,
+      audioPlayCount: a.audioPlayCount,
+    })),
+  };
+}

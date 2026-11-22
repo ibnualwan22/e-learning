@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { startSection } from "@/lib/toafl-exam";
+import {
+  autoExpireCurrentSection,
+  buildAttemptState,
+  startSection,
+} from "@/lib/toafl-exam";
 
 // TOAFL Fase 4 — mulai ujian: buat Attempt + SectionAttempt pertama
 // (snapshot maharoh pertama). Champion sekali saja; simulasi boleh
@@ -79,9 +83,14 @@ export async function POST(req: Request) {
     });
 
     if (existing && existing.status === "IN_PROGRESS") {
+      // Resume: tegakkan timer dulu (bila maharoh sudah habis, state
+      // yang dikembalikan sudah mencerminkan penutupan otomatisnya),
+      // lalu kembalikan state penuh seperti start baru.
+      await autoExpireCurrentSection(existing.id);
+      const state = await buildAttemptState(existing.id);
       return NextResponse.json({
         attemptId: existing.id,
-        attempt: existing,
+        ...state,
         resumed: true,
       });
     }
@@ -105,9 +114,10 @@ export async function POST(req: Request) {
     const first = exam.maharohs[0];
     await startSection(attempt.id, exam.levelId, first.maharoh.name, first);
 
+    const state = await buildAttemptState(attempt.id);
     return NextResponse.json({
       attemptId: attempt.id,
-      attempt,
+      ...state,
       resumed: false,
     });
   } catch (error) {

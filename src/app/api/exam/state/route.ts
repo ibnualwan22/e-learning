@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import {
-  autoExpireCurrentSection,
-  stripSnapshotForClient,
-  type SectionSnapshot,
-} from "@/lib/toafl-exam";
+import { autoExpireCurrentSection, buildAttemptState } from "@/lib/toafl-exam";
 
 // TOAFL Fase 4 — state ujian.
 // - tanpa param: daftar exam yang bisa diikuti peserta + riwayat attempt.
@@ -25,132 +21,29 @@ export async function GET(req: Request) {
 
   try {
     if (attemptId) {
-      let attempt = await prisma.attempt.findUnique({
+      const owned = await prisma.attempt.findUnique({
         where: { id: attemptId },
-        include: {
-          exam: {
-            include: {
-              level: { select: { id: true, name: true } },
-              maharohs: {
-                include: { maharoh: true },
-                orderBy: { orderIndex: "asc" },
-              },
-            },
-          },
-          sections: { orderBy: { createdAt: "asc" } },
-          answers: true,
-        },
+        select: { userId: true, status: true },
       });
 
-      if (!attempt || attempt.userId !== userSession.userId) {
+      if (!owned || owned.userId !== userSession.userId) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
       // Penegakan timer dari server: maharoh yang sudah habis ditutup
       // otomatis sebelum state dikirim.
-      if (attempt.status === "IN_PROGRESS") {
-        await autoExpireCurrentSection(attempt.id);
-        attempt = await prisma.attempt.findUnique({
-          where: { id: attemptId },
-          include: {
-            exam: {
-              include: {
-                level: { select: { id: true, name: true } },
-                maharohs: {
-                  include: { maharoh: true },
-                  orderBy: { orderIndex: "asc" },
-                },
-              },
-            },
-            sections: { orderBy: { createdAt: "asc" } },
-            answers: true,
-          },
-        });
-        if (!attempt) {
-          return NextResponse.json(
-            { error: "Attempt tidak ditemukan" },
-            { status: 404 }
-          );
-        }
+      if (owned.status === "IN_PROGRESS") {
+        await autoExpireCurrentSection(attemptId);
       }
 
-      const currentSection =
-        attempt.status === "IN_PROGRESS"
-          ? (attempt.sections.find(
-              (s) =>
-                s.maharohId === attempt.currentMaharohId &&
-                s.status === "IN_PROGRESS"
-            ) ?? null)
-          : null;
-
-      const sections = attempt.sections.map((s) => {
-        const snap = s.snapshot as unknown as SectionSnapshot;
-        return {
-          id: s.id,
-          maharohId: s.maharohId,
-          maharohName: snap.maharohName,
-          status: s.status,
-          startedAt: s.startedAt,
-          expiresAt: s.expiresAt,
-          finishedAt: s.finishedAt,
-          score: s.score,
-          questionCount: snap.questions.length,
-        };
-      });
-
-      return NextResponse.json({
-        serverTime: new Date().toISOString(),
-        attempt: {
-          id: attempt.id,
-          status: attempt.status,
-          startedAt: attempt.startedAt,
-          finishedAt: attempt.finishedAt,
-          timeSpentSeconds: attempt.timeSpentSeconds,
-          rawScore: attempt.rawScore,
-          finalScore: attempt.finalScore,
-          currentMaharohId: attempt.currentMaharohId,
-        },
-        exam: {
-          id: attempt.exam.id,
-          title: attempt.exam.title,
-          description: attempt.exam.description,
-          mode: attempt.exam.mode,
-          autoSubmitOnViolation: attempt.exam.autoSubmitOnViolation,
-          level: attempt.exam.level,
-          maharohs: attempt.exam.maharohs.map((m) => ({
-            id: m.maharoh.id,
-            name: m.maharoh.name,
-            orderIndex: m.orderIndex,
-            minutes: m.minutes,
-            questionCount: m.questionCount,
-            audioRepeats: m.audioRepeats,
-          })),
-        },
-        sections,
-        currentSection: currentSection
-          ? {
-              id: currentSection.id,
-              maharohId: currentSection.maharohId,
-              maharohName: (
-                currentSection.snapshot as unknown as SectionSnapshot
-              ).maharohName,
-              status: currentSection.status,
-              startedAt: currentSection.startedAt,
-              expiresAt: currentSection.expiresAt,
-              questions: stripSnapshotForClient(
-                currentSection.snapshot as unknown as SectionSnapshot
-              ).questions,
-            }
-          : null,
-        answers: attempt.answers.map((a) => ({
-          questionId: a.questionId,
-          maharohId: a.maharohId,
-          selectedOptionId: a.selectedOptionId,
-          isDoubtful: a.isDoubtful,
-          answeredAt: a.answeredAt,
-          audioPlayCount: a.audioPlayCount,
-        })),
-      });
+      const state = await buildAttemptState(attemptId);
+      if (!state) {
+        return NextResponse.json(
+          { error: "Attempt tidak ditemukan" },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json(state);
     }
 
     if (examId) {

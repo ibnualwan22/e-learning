@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import {
   advanceAfterSection,
   autoExpireCurrentSection,
+  buildAttemptState,
   finalizeSection,
 } from "@/lib/toafl-exam";
 
@@ -29,7 +30,8 @@ export async function POST(req: Request) {
     }
 
     if (attempt.status !== "IN_PROGRESS") {
-      return NextResponse.json({ attempt });
+      const state = await buildAttemptState(attempt.id);
+      return NextResponse.json(state);
     }
 
     // Bila sudah lewat tenggat, penutupan berjalan lewat jalur TIME_UP.
@@ -39,7 +41,8 @@ export async function POST(req: Request) {
       include: { sections: true },
     });
     if (!attempt || attempt.status !== "IN_PROGRESS") {
-      return NextResponse.json({ attempt });
+      const state = await buildAttemptState(attemptId);
+      return NextResponse.json(state);
     }
 
     const currentSection = attempt.sections.find(
@@ -54,9 +57,12 @@ export async function POST(req: Request) {
     }
 
     await finalizeSection(currentSection.id, "SUBMITTED");
-    const updated = await advanceAfterSection(attempt.id);
+    await advanceAfterSection(attempt.id);
 
-    return NextResponse.json({ attempt: updated });
+    // Kembalikan state penuh: skor section yang baru ditutup + section
+    // berikut (atau attempt SUBMITTED bila itu maharoh terakhir).
+    const state = await buildAttemptState(attempt.id);
+    return NextResponse.json(state);
   } catch (error) {
     console.error("Submit TOAFL section error:", error);
     return NextResponse.json(
