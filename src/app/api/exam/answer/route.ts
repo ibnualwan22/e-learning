@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { calculateAndSaveAttemptScore } from "@/lib/scoring";
+import {
+  autoExpireCurrentSection,
+  type SectionSnapshot,
+} from "@/lib/toafl-exam";
 
+// TOAFL Fase 4 — simpan jawaban satu soal. Hanya maharoh yang sedang
+// berjalan yang bisa dijawab; soal harus ada di snapshot section itu;
+// maharoh yang sudah selesai terkunci (tidak bisa kembali).
 export async function POST(req: Request) {
   const userSession = await getSession();
   if (!userSession) {
@@ -13,8 +19,9 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { attemptId, questionId, selectedOptionId, isDoubtful } = body;
 
-    const attempt = await prisma.examAttempt.findUnique({
+    let attempt = await prisma.attempt.findUnique({
       where: { id: attemptId },
+      include: { sections: true },
     });
 
     if (!attempt || attempt.userId !== userSession.userId) {
@@ -28,28 +35,51 @@ export async function POST(req: Request) {
       );
     }
 
-    // GELOMBANG 1: tolak jawaban sebelum peserta klik "Mulai".
-    // Tanpa ini, attempt yang baru verifikasi token (startedAt null,
-    // expiresAt null) bisa dijawab sepuasnya tanpa timer berjalan.
-    if (!attempt.startedAt) {
+    // Penegakan timer dari server: bila maharoh sudah habis, tutup dulu.
+    await autoExpireCurrentSection(attempt.id);
+    attempt = await prisma.attempt.findUnique({
+      where: { id: attemptId },
+      include: { sections: true },
+    });
+    if (!attempt || attempt.status !== "IN_PROGRESS") {
       return NextResponse.json(
-        {
-          error:
-            "Ujian belum dimulai. Klik 'Mulai' di halaman Tata Tertib terlebih dahulu.",
-        },
+        { error: "Waktu pengerjaan maharoh ini telah habis", timeUp: true },
+        { status: 400 }
+      );
+    }
+
+    const currentSection = attempt.sections.find(
+      (s) =>
+        s.maharohId === attempt.currentMaharohId && s.status === "IN_PROGRESS"
+    );
+    if (!currentSection) {
+      return NextResponse.json(
+        { error: "Tidak ada maharoh yang sedang berjalan" },
+        { status: 400 }
+      );
+    }
+
+    const snapshot = currentSection.snapshot as unknown as SectionSnapshot;
+    const snapQuestion = snapshot.questions.find((q) => q.id === questionId);
+    if (!snapQuestion) {
+      return NextResponse.json(
+        { error: "Soal tidak ada di maharoh yang sedang berjalan" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      selectedOptionId !== undefined &&
+      selectedOptionId !== null &&
+      !snapQuestion.options.some((o) => o.id === selectedOptionId)
+    ) {
+      return NextResponse.json(
+        { error: "Opsi jawaban tidak valid untuk soal ini" },
         { status: 400 }
       );
     }
 
     const now = new Date();
-    if (attempt.expiresAt && now > attempt.expiresAt) {
-      await calculateAndSaveAttemptScore(attempt.id, "TIME_UP");
-      return NextResponse.json(
-        { error: "Waktu pengerjaan telah habis", timeUp: true },
-        { status: 400 }
-      );
-    }
-
     const answer = await prisma.attemptAnswer.upsert({
       where: {
         attemptId_questionId: {
@@ -58,32 +88,30 @@ export async function POST(req: Request) {
         },
       },
       update: {
-        ...(selectedOptionId !== undefined ? { selectedOptionId } : {}),
-        ...(isDoubtful !== undefined ? { isDoubtful: Boolean(isDoubtful) } : {}),
+        ...(selectedOptionId !== undefined
+          ? { selectedOptionId: selectedOptionId || null }
+          : {}),
+        ...(isDoubtful !== undefined
+          ? { isDoubtful: Boolean(isDoubtful) }
+          : {}),
         answeredAt: now,
       },
       create: {
         attemptId,
         questionId,
+        maharohId: currentSection.maharohId,
         selectedOptionId: selectedOptionId || null,
         isDoubtful: Boolean(isDoubtful),
         answeredAt: now,
       },
     });
 
-    // Sinyal aktivitas untuk monitoring (pelengkap heartbeat 30 detik).
-    await prisma.examAttempt.update({
-      where: { id: attemptId },
-      data: { lastSeenAt: now },
-    });
-
     return NextResponse.json({ answer, serverTime: now.toISOString() });
   } catch (error) {
-    console.error("Save answer error:", error);
+    console.error("Save TOAFL answer error:", error);
     return NextResponse.json(
       { error: "Gagal menyimpan jawaban" },
       { status: 500 }
     );
   }
 }
-

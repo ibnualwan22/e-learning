@@ -56,6 +56,7 @@ model User {
   whatsapp     String?       @unique
   isActive     Boolean       @default(true)
   attempts     ExamAttempt[]
+  toaflAttempts Attempt[]
   registrations Registration[]
   emailLogs    EmailLog[]
   createdAt    DateTime      @default(now())
@@ -130,8 +131,74 @@ model Maharoh {
   isActive            Boolean    @default(true)
   questions           Question[]
   examMaharohs        ExamMaharoh[]
+  sectionAttempts     SectionAttempt[]
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
+}
+
+// TOAFL Fase 4: attempt ujian TOAFL (mesin baru). Satu attempt milik satu
+// Exam (mode SIMULASI/CHAMPION). Champion sekali saja + simulasi boleh
+// diulang: aturan itu ditegakkan di API start (bukan @@unique), karena satu
+// constraint DB tidak bisa bersyarat per mode.
+model Attempt {
+  id               String        @id @default(cuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  examId           String
+  exam             Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
+  status           AttemptStatus @default(IN_PROGRESS)
+  startedAt        DateTime      @default(now())
+  finishedAt       DateTime?
+  timeSpentSeconds Int?
+  rawScore         Float         @default(0)
+  finalScore       Float         @default(0)
+  // Peta maharohId -> urutan ID soal yang diacak untuk attempt ini.
+  questionOrder    Json?
+  currentMaharohId String?
+  sections         SectionAttempt[]
+  answers          AttemptAnswer[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+// TOAFL Fase 4: satu maharoh dalam satu attempt. Snapshot membekukan soal +
+// urutan opsi + kunci + bobot saat maharoh dimulai (§8 plan) — jawaban dan
+// penilaian merujuk snapshot, bukan bank live.
+model SectionAttempt {
+  id         String        @id @default(cuid())
+  attemptId  String
+  attempt    Attempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  maharohId  String
+  maharoh    Maharoh       @relation(fields: [maharohId], references: [id], onDelete: Cascade)
+  status     AttemptStatus @default(IN_PROGRESS)
+  startedAt  DateTime      @default(now())
+  expiresAt  DateTime
+  finishedAt DateTime?
+  score      Float         @default(0)
+  snapshot   Json
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([attemptId, maharohId])
+}
+
+// TOAFL Fase 4: jawaban peserta per soal. audioPlayCount dihitung server
+// (satu counter per soal: audio soal + audio opsi soal itu berbagi batas
+// pengulangan maharoh). questionId/selectedOptionId disimpan sebagai String
+// tanpa relasi Prisma — penilaian memakai snapshot yang dibekukan, bukan
+// baris bank live.
+model AttemptAnswer {
+  id               String   @id @default(cuid())
+  attemptId        String
+  attempt          Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId       String
+  maharohId        String
+  selectedOptionId String?
+  isDoubtful       Boolean  @default(false)
+  answeredAt       DateTime @default(now())
+  audioPlayCount   Int      @default(0)
+
+  @@unique([attemptId, questionId])
 }
 
 // TOAFL Fase 2: ujian per mode + level. Waktu, jumlah soal, dan batas
@@ -150,6 +217,7 @@ model Exam {
   endTime               DateTime?
   autoSubmitOnViolation Boolean       @default(true)
   maharohs              ExamMaharoh[]
+  attempts              Attempt[]
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 }
@@ -183,7 +251,7 @@ model Question {
   explanation String?           @db.Text
   options     QuestionOption[]
   sessions    SessionQuestion[]
-  answers     AttemptAnswer[]
+  answers     LegacyAttemptAnswer[]
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 }
@@ -198,7 +266,7 @@ model QuestionOption {
   isCorrect  Boolean         @default(false)
   contentType OptionContentType @default(TEXT)
   audioUrl   String?
-  answers    AttemptAnswer[]
+  answers    LegacyAttemptAnswer[]
 }
 
 model ExamSession {
@@ -259,13 +327,17 @@ model ExamAttempt {
   speedBonus       Float           @default(0)
   finalScore       Float           @default(0)
   questionOrder    Json?
-  answers          AttemptAnswer[]
+  answers          LegacyAttemptAnswer[]
   updatedAt        DateTime        @updatedAt
 
   @@unique([userId, sessionId])
 }
 
-model AttemptAnswer {
+// Jawaban model Olimpiade lama (ExamAttempt/ExamSession). Namanya diganti
+// supaya nama AttemptAnswer bisa dipakai mesin TOAFL Fase 4; nama field
+// relasi (answers) TIDAK berubah sehingga scoring.ts + monitoring lama
+// tetap jalan tanpa edit.
+model LegacyAttemptAnswer {
   id               String          @id @default(cuid())
   attemptId        String
   attempt          ExamAttempt     @relation(fields: [attemptId], references: [id], onDelete: Cascade)

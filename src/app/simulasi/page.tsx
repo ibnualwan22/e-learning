@@ -8,12 +8,29 @@ import {
   ArrowLeft,
   CheckCircle2,
   UserPlus,
+  PlayCircle,
+  Clock,
 } from "lucide-react";
 
 interface LevelOption {
   id: string;
   name: string;
   description: string | null;
+}
+
+interface MyExam {
+  id: string;
+  title: string;
+  description: string | null;
+  mode: "SIMULASI" | "CHAMPION";
+  level: { id: string; name: string };
+  maharohs: {
+    id: string;
+    name: string;
+    minutes: number;
+    questionCount: number;
+  }[];
+  attempt: { id: string; status: string; finalScore: number | null } | null;
 }
 
 // TOAFL Fase 3 — halaman pendaftaran Simulasi: form identitas + langsung
@@ -36,6 +53,10 @@ export default function SimulasiPage() {
   const [submitting, setSubmitting] = useState(false);
   const [successUsername, setSuccessUsername] = useState("");
 
+  // TOAFL Fase 4 — bila sudah login, tampilkan ujian simulasi yang bisa
+  // diikuti (sesuai registrasi VERIFIED) + tombol mulai.
+  const [myExams, setMyExams] = useState<MyExam[]>([]);
+
   useEffect(() => {
     async function loadLevels() {
       try {
@@ -48,6 +69,22 @@ export default function SimulasiPage() {
       }
     }
     loadLevels();
+  }, []);
+
+  useEffect(() => {
+    async function loadMyExams() {
+      try {
+        const res = await fetch("/api/exam/state");
+        if (!res.ok) return;
+        const data = await res.json();
+        setMyExams(
+          (data.exams || []).filter((e: MyExam) => e.mode === "SIMULASI")
+        );
+      } catch {
+        // belum login: abaikan, form pendaftaran tetap tampil
+      }
+    }
+    loadMyExams();
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -138,6 +175,64 @@ export default function SimulasiPage() {
             tab / aplikasi mengambang)
           </li>
         </ul>
+
+        {myExams.length > 0 && (
+          <div className="mt-8 space-y-3">
+            <h2 className="text-lg font-bold">Ujian Simulasi Saya</h2>
+            {myExams.map((exam) => (
+              <div
+                key={exam.id}
+                className="bg-white border border-zinc-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-green-100 text-green-800">
+                      Simulasi
+                    </span>
+                    <span className="text-xs text-zinc-500">
+                      {exam.level.name}
+                    </span>
+                    <span className="text-xs text-zinc-500 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      Kapan saja
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-zinc-900 mt-1.5">
+                    {exam.title}
+                  </h3>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    {exam.maharohs.length} maharoh:{" "}
+                    {exam.maharohs
+                      .map((m) => `${m.name} (${m.minutes} mnt)`)
+                      .join(" • ")}
+                  </p>
+                  {exam.attempt &&
+                    exam.attempt.status !== "IN_PROGRESS" && (
+                      <p className="text-xs text-zinc-600 mt-1">
+                        Skor terakhir:{" "}
+                        <strong>{exam.attempt.finalScore}</strong>
+                      </p>
+                    )}
+                </div>
+                <Link
+                  href={
+                    exam.attempt?.status === "IN_PROGRESS"
+                      ? `/exam/${exam.attempt.id}/play`
+                      : `/exam/${exam.id}/rules`
+                  }
+                  className="shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold"
+                >
+                  <PlayCircle className="w-4 h-4" />
+                  {exam.attempt?.status === "IN_PROGRESS"
+                    ? "Lanjutkan Mengerjakan"
+                    : exam.attempt
+                      ? "Ulangi Simulasi"
+                      : "Mulai Ujian"}
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
 
         {successUsername ? (
           <div className="mt-8 bg-green-50 border border-green-200 rounded-xl p-5">

@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { startSection } from "@/lib/toafl-exam";
 
-function shuffleArray<T>(arr: T[]): T[] {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
+// TOAFL Fase 4 — mulai ujian: buat Attempt + SectionAttempt pertama
+// (snapshot maharoh pertama). Champion sekali saja; simulasi boleh
+// membuat attempt baru tiap pengulangan. Attempt IN_PROGRESS yang masih
+// ada dikembalikan (resume), bukan dibuat baru.
 export async function POST(req: Request) {
   const userSession = await getSession();
   if (!userSession) {
@@ -18,101 +14,107 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { sessionId } = await req.json();
+    const { examId } = await req.json();
 
-    const examSession = await prisma.examSession.findUnique({
-      where: { id: sessionId },
+    const exam = await prisma.exam.findUnique({
+      where: { id: examId },
       include: {
-        questions: {
+        maharohs: {
+          include: { maharoh: true },
           orderBy: { orderIndex: "asc" },
         },
       },
     });
 
-    if (!examSession || !examSession.isActive) {
+    if (!exam || !exam.isActive) {
       return NextResponse.json(
-        { error: "Sesi ujian tidak ditemukan atau tidak aktif" },
+        { error: "Ujian tidak ditemukan atau tidak aktif" },
         { status: 404 }
       );
     }
 
-    // GELOMBANG 2: tegakkan jendela waktu bila diisi admin
-    // (cerminan cek di verify-token).
-    const nowWindow = new Date();
-    if (examSession.startTime && nowWindow < examSession.startTime) {
+    if (exam.maharohs.length === 0) {
       return NextResponse.json(
-        { error: "Sesi ujian belum dibuka sesuai jadwal." },
-        { status: 403 }
-      );
-    }
-    if (examSession.endTime && nowWindow > examSession.endTime) {
-      return NextResponse.json(
-        { error: "Sesi ujian sudah ditutup sesuai jadwal." },
-        { status: 403 }
-      );
-    }
-
-    const attempt = await prisma.examAttempt.findUnique({
-      where: {
-        userId_sessionId: {
-          userId: userSession.userId,
-          sessionId,
-        },
-      },
-    });
-
-    if (!attempt) {
-      return NextResponse.json(
-        { error: "Anda belum memasukkan token untuk sesi ini" },
-        { status: 403 }
-      );
-    }
-
-    if (attempt.status !== "IN_PROGRESS") {
-      return NextResponse.json(
-        { error: "Anda sudah menyelesaikan sesi ujian ini" },
+        { error: "Ujian ini belum punya maharoh" },
         { status: 400 }
       );
     }
 
-    // Jika sudah pernah klik mulai sebelumnya, kembalikan waktu yang sudah berjalan (anti-refresh reset)
-    if (attempt.startedAt && attempt.expiresAt) {
+    // Harus terdaftar VERIFIED untuk mode + level exam ini.
+    const registration = await prisma.registration.findFirst({
+      where: {
+        userId: userSession.userId,
+        mode: exam.mode,
+        levelId: exam.levelId,
+        status: "VERIFIED",
+      },
+    });
+    if (!registration) {
+      return NextResponse.json(
+        { error: "Anda belum terverifikasi untuk ujian ini" },
+        { status: 403 }
+      );
+    }
+
+    // Champion: tegakkan jadwal tetap.
+    const now = new Date();
+    if (exam.mode === "CHAMPION") {
+      if (exam.startTime && now < exam.startTime) {
+        return NextResponse.json(
+          { error: "Ujian champion belum dibuka sesuai jadwal." },
+          { status: 403 }
+        );
+      }
+      if (exam.endTime && now > exam.endTime) {
+        return NextResponse.json(
+          { error: "Ujian champion sudah ditutup sesuai jadwal." },
+          { status: 403 }
+        );
+      }
+    }
+
+    const existing = await prisma.attempt.findFirst({
+      where: { userId: userSession.userId, examId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existing && existing.status === "IN_PROGRESS") {
       return NextResponse.json({
-        attempt,
-        startedAt: attempt.startedAt,
-        expiresAt: attempt.expiresAt,
+        attemptId: existing.id,
+        attempt: existing,
+        resumed: true,
       });
     }
 
-    const now = new Date();
-    const totalMinutes = examSession.durationMinutes + attempt.extraMinutes;
-    const expiresAt = new Date(now.getTime() + totalMinutes * 60 * 1000);
+    if (existing && exam.mode === "CHAMPION") {
+      return NextResponse.json(
+        { error: "Anda sudah pernah mengikuti exam champion ini" },
+        { status: 400 }
+      );
+    }
 
-    const rawQuestionIds = examSession.questions.map((sq) => sq.questionId);
-    const orderedIds = examSession.shuffleQuestions
-      ? shuffleArray(rawQuestionIds)
-      : rawQuestionIds;
-
-    const updatedAttempt = await prisma.examAttempt.update({
-      where: { id: attempt.id },
+    const attempt = await prisma.attempt.create({
       data: {
+        userId: userSession.userId,
+        examId,
+        status: "IN_PROGRESS",
         startedAt: now,
-        expiresAt,
-        questionOrder: orderedIds,
       },
     });
 
+    const first = exam.maharohs[0];
+    await startSection(attempt.id, exam.levelId, first.maharoh.name, first);
+
     return NextResponse.json({
-      attempt: updatedAttempt,
-      startedAt: updatedAttempt.startedAt,
-      expiresAt: updatedAttempt.expiresAt,
+      attemptId: attempt.id,
+      attempt,
+      resumed: false,
     });
   } catch (error) {
-    console.error("Start exam error:", error);
+    console.error("Start TOAFL exam error:", error);
     return NextResponse.json(
-      { error: "Gagal memulai waktu ujian" },
+      { error: "Gagal memulai ujian" },
       { status: 500 }
     );
   }
 }
-

@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { calculateAndSaveAttemptScore } from "@/lib/scoring";
+import {
+  autoExpireCurrentSection,
+  finalizeAttempt,
+  finalizeSection,
+} from "@/lib/toafl-exam";
 
+// TOAFL Fase 4 — kumpulkan seluruh attempt: tutup maharoh berjalan bila
+// masih ada (SUBMITTED, atau TIME_UP bila sudah lewat tenggat), lalu
+// finalisasi skor total. Dipakai sebagai pengaman akhir; alur normal
+// menutup tiap maharoh lewat submit-section.
 export async function POST(req: Request) {
   const userSession = await getSession();
   if (!userSession) {
@@ -12,48 +20,51 @@ export async function POST(req: Request) {
   try {
     const { attemptId } = await req.json();
 
-    const attempt = await prisma.examAttempt.findUnique({
+    let attempt = await prisma.attempt.findUnique({
       where: { id: attemptId },
-      include: { session: { select: { resultsVisible: true } } },
+      include: { sections: true },
     });
 
     if (!attempt || attempt.userId !== userSession.userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // EMBARGO HASIL: respons submit pun tidak boleh membocorkan skor
-    // selama sesi belum membuka hasil (halaman selesai mengambil skor
-    // dari sini / dari state — keduanya harus ditahan).
-    const stripScores = <T extends { timeSpentSeconds: unknown; rawScore: unknown; penaltyScore: unknown; speedBonus: unknown; finalScore: unknown }>(
-      a: T
-    ) =>
-      attempt.session.resultsVisible
-        ? a
-        : {
-            ...a,
-            timeSpentSeconds: null,
-            rawScore: null,
-            penaltyScore: null,
-            speedBonus: null,
-            finalScore: null,
-          };
-
     if (attempt.status !== "IN_PROGRESS") {
-      return NextResponse.json({ attempt: stripScores(attempt) });
+      return NextResponse.json({ attempt });
     }
 
-    const finalized = await calculateAndSaveAttemptScore(
+    await autoExpireCurrentSection(attempt.id);
+    attempt = await prisma.attempt.findUnique({
+      where: { id: attemptId },
+      include: { sections: true },
+    });
+    if (!attempt || attempt.status !== "IN_PROGRESS") {
+      return NextResponse.json({ attempt });
+    }
+
+    const currentSection = attempt.sections.find(
+      (s) =>
+        s.maharohId === attempt.currentMaharohId && s.status === "IN_PROGRESS"
+    );
+    if (currentSection) {
+      const status =
+        new Date() > currentSection.expiresAt ? "TIME_UP" : "SUBMITTED";
+      await finalizeSection(currentSection.id, status);
+    }
+
+    const finalized = await finalizeAttempt(
       attempt.id,
-      "SUBMITTED"
+      currentSection && new Date() > currentSection.expiresAt
+        ? "TIME_UP"
+        : "SUBMITTED"
     );
 
-    return NextResponse.json({ attempt: stripScores(finalized) });
+    return NextResponse.json({ attempt: finalized });
   } catch (error) {
-    console.error("Submit exam error:", error);
+    console.error("Submit TOAFL exam error:", error);
     return NextResponse.json(
       { error: "Gagal mengumpulkan ujian" },
       { status: 500 }
     );
   }
 }
-

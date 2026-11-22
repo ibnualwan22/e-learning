@@ -12,10 +12,11 @@ import {
   Send,
   CheckCircle2,
   AlertTriangle,
-  Trophy,
-  Zap,
   ArrowLeft,
   Type,
+  Volume2,
+  Lock,
+  Play,
 } from "lucide-react";
 
 interface OptionItem {
@@ -23,6 +24,8 @@ interface OptionItem {
   label: string;
   content: string;
   direction: "RTL" | "LTR";
+  contentType: "TEXT" | "AUDIO";
+  audioUrl: string | null;
 }
 
 interface QuestionItem {
@@ -30,18 +33,51 @@ interface QuestionItem {
   content: string;
   direction: "RTL" | "LTR";
   weight: number;
-  category?: { name: string } | null;
+  audioUrl: string | null;
+  explanation: string | null;
   options: OptionItem[];
+}
+
+interface SectionInfo {
+  id: string;
+  maharohId: string;
+  maharohName: string;
+  status: "IN_PROGRESS" | "SUBMITTED" | "TIME_UP";
+  startedAt: string;
+  expiresAt: string;
+  finishedAt: string | null;
+  score: number;
+  questionCount: number;
+}
+
+interface MaharohInfo {
+  id: string;
+  name: string;
+  orderIndex: number;
+  minutes: number;
+  questionCount: number;
+  audioRepeats: number;
+}
+
+interface AttemptInfo {
+  id: string;
+  status: "IN_PROGRESS" | "SUBMITTED" | "TIME_UP";
+  startedAt: string | null;
+  finishedAt: string | null;
+  timeSpentSeconds: number | null;
+  rawScore: number | null;
+  finalScore: number | null;
+  currentMaharohId: string | null;
 }
 
 interface AnswerState {
   selectedOptionId: string | null;
   isDoubtful: boolean;
+  audioPlayCount: number;
 }
 
 // Cadangan jawaban di perangkat peserta (pelajaran dari ujian Usbu'i Siakad:
 // jawaban yang gagal terkirim tidak boleh hilang saat tab ditutup).
-// Satu entri per soal; `saved:false` berarti belum dikonfirmasi server.
 interface LocalAnswerEntry {
   selectedOptionId: string | null;
   isDoubtful: boolean;
@@ -49,8 +85,7 @@ interface LocalAnswerEntry {
   updatedAt: number;
 }
 
-const localAnswersKey = (attemptId: string) =>
-  `olimpiade-answers:${attemptId}`;
+const localAnswersKey = (attemptId: string) => `toafl-answers:${attemptId}`;
 
 function readLocalAnswers(
   attemptId: string
@@ -77,10 +112,6 @@ function writeLocalAnswers(
   }
 }
 
-// Kirim ulang semua jawaban tertunda untuk satu attempt. Idempotent (upsert
-// per soal di server), jadi kirim ganda tidak merusak data. Melewati entri
-// yang sudah diubah lagi sejak snapshot supaya kiriman lama tidak menimpa
-// jawaban baru. Mengembalikan true bila tidak ada lagi yang tertunda.
 async function flushPendingForAttempt(attemptId: string): Promise<boolean> {
   const pending = Object.entries(readLocalAnswers(attemptId)).filter(
     ([, e]) => e && !e.saved
@@ -107,7 +138,7 @@ async function flushPendingForAttempt(attemptId: string): Promise<boolean> {
           window.location.reload();
           return false;
         }
-        continue; // tetap tertunda, dicoba lagi pada pemicu berikutnya
+        continue;
       }
       const after = readLocalAnswers(attemptId);
       const afterEntry = after[questionId];
@@ -124,36 +155,23 @@ async function flushPendingForAttempt(attemptId: string): Promise<boolean> {
   );
 }
 
+// TOAFL Fase 4 — halaman ujian per maharoh. Folder tetap [sessionId]
+// (warisan Olimpiade) tapi param-nya adalah ID Attempt TOAFL.
 export default function ExamPlayPage({
   params,
 }: {
   params: Promise<{ sessionId: string }>;
 }) {
-  const { sessionId } = use(params);
+  const { sessionId: attemptId } = use(params);
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
-  const [attempt, setAttempt] = useState<{
-    id: string;
-    status: "IN_PROGRESS" | "SUBMITTED" | "TIME_UP";
-    startedAt: string | null;
-    expiresAt: string | null;
-    timeSpentSeconds: number | null;
-    rawScore: number | null;
-    penaltyScore: number | null;
-    speedBonus: number | null;
-    finalScore: number | null;
-  } | null>(null);
-
-  const [sessionInfo, setSessionInfo] = useState<{
-    id: string;
-    title: string;
-    durationMinutes: number;
-    speedScoringMode: "BONUS_POINTS" | "TIE_BREAKER";
-    maxSpeedBonus: number;
-    resultsVisible: boolean;
-  } | null>(null);
-
+  const [attempt, setAttempt] = useState<AttemptInfo | null>(null);
+  const [examTitle, setExamTitle] = useState("");
+  const [maharohs, setMaharohs] = useState<MaharohInfo[]>([]);
+  const [sections, setSections] = useState<SectionInfo[]>([]);
+  const [currentSectionId, setCurrentSectionId] = useState<string | null>(null);
+  const [currentMaharohName, setCurrentMaharohName] = useState("");
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [answers, setAnswers] = useState<Record<string, AnswerState>>({});
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -168,57 +186,18 @@ export default function ExamPlayPage({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isTimeUp, setIsTimeUp] = useState(false);
-  // Auto-submit saat waktu habis hanya boleh jalan sekali (tanpa pengulangan
-  // otomatis — pengulangan tanpa jeda pernah membebani VPS di ujian Siakad).
+  const [playingUrl, setPlayingUrl] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
+
   const autoSubmitRef = useRef(false);
-  const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushingRef = useRef(false);
+  const audioElsRef = useRef<Record<string, HTMLAudioElement>>({});
 
-  const handleSubmitExam = useCallback(
-    async (attemptIdToSubmit: string) => {
-      if (submitting) return;
-      setSubmitting(true);
-      setSubmitError(null);
+  const loadState = useCallback(
+    async (silent: boolean) => {
       try {
-        const res = await fetch("/api/exam/submit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ attemptId: attemptIdToSubmit }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setAttempt(data.attempt);
-          setShowConfirmModal(false);
-          try {
-            window.localStorage.removeItem(
-              localAnswersKey(attemptIdToSubmit)
-            );
-          } catch {
-            // abaikan
-          }
-        } else {
-          setSubmitError(
-            "Gagal mengumpulkan ujian. Periksa koneksi Anda lalu klik Kumpulkan lagi."
-          );
-        }
-      } catch {
-        setSubmitError(
-          "Gagal mengumpulkan ujian. Periksa koneksi Anda lalu klik Kumpulkan lagi."
-        );
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [submitting]
-  );
-
-  // Load initial exam state
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch(`/api/exam/state?sessionId=${sessionId}`);
+        const res = await fetch(`/api/exam/state?attemptId=${attemptId}`);
         if (res.status === 401) {
           router.push("/login");
           return;
@@ -227,34 +206,40 @@ export default function ExamPlayPage({
           router.push("/exam");
           return;
         }
-
         const data = await res.json();
-        if (data.attempt.status === "IN_PROGRESS" && !data.attempt.startedAt) {
-          router.replace(`/exam/${sessionId}/rules`);
-          return;
-        }
-
         setAttempt(data.attempt);
-        setSessionInfo(data.session);
-        setQuestions(data.questions || []);
+        setExamTitle(data.exam.title);
+        setMaharohs(data.exam.maharohs || []);
+        setSections(data.sections || []);
 
         const ansMap: Record<string, AnswerState> = {};
         for (const a of data.answers || []) {
           ansMap[a.questionId] = {
             selectedOptionId: a.selectedOptionId,
             isDoubtful: a.isDoubtful,
+            audioPlayCount: a.audioPlayCount ?? 0,
           };
         }
         setAnswers(ansMap);
 
-        // Gabung cadangan lokal: jawaban yang belum terkirim (mis. tab
-        // tertutup setelah gagal simpan) dipakai lagi dan dikirim ulang.
-        // Cadangan lokal hanya menimpa soal yang statusnya tertunda; soal
-        // yang sudah tersimpan tetap mengikuti server.
-        if (
-          data.attempt.status === "IN_PROGRESS" &&
-          data.attempt.startedAt
-        ) {
+        if (data.attempt.status === "IN_PROGRESS" && data.currentSection) {
+          const cs = data.currentSection;
+          setCurrentSectionId(cs.id);
+          setCurrentMaharohName(cs.maharohName);
+          setQuestions(cs.questions || []);
+          const serverNow = new Date(data.serverTime).getTime();
+          const expiry = new Date(cs.expiresAt).getTime();
+          setRemainingSeconds(
+            Math.max(0, Math.floor((expiry - serverNow) / 1000))
+          );
+          setCurrentIdx(0);
+        } else {
+          setCurrentSectionId(null);
+          setQuestions([]);
+          setRemainingSeconds(null);
+        }
+
+        if (!silent && data.attempt.status === "IN_PROGRESS") {
           const local = readLocalAnswers(data.attempt.id);
           const pendingEntries = Object.entries(local).filter(
             ([, e]) => e && !e.saved
@@ -266,6 +251,7 @@ export default function ExamPlayPage({
                 merged[qid] = {
                   selectedOptionId: e.selectedOptionId,
                   isDoubtful: e.isDoubtful,
+                  audioPlayCount: merged[qid]?.audioPlayCount ?? 0,
                 };
               }
               return merged;
@@ -273,49 +259,88 @@ export default function ExamPlayPage({
             void flushPendingForAttempt(data.attempt.id);
           }
         }
-
-        if (data.attempt.status === "IN_PROGRESS" && data.attempt.expiresAt) {
-          const serverNow = new Date(data.serverTime).getTime();
-          const expiry = new Date(data.attempt.expiresAt).getTime();
-          const diffSec = Math.max(0, Math.floor((expiry - serverNow) / 1000));
-          setRemainingSeconds(diffSec);
-        }
       } finally {
         setLoading(false);
       }
-    }
-    load();
-  }, [sessionId, router]);
+    },
+    [attemptId, router]
+  );
 
-  // Attempt baru (id berubah) -> reset penanda waktu habis & auto-submit.
+  useEffect(() => {
+    void loadState(false);
+  }, [loadState]);
+
+  // Preload semua audio maharoh berjalan saat section dimuat, supaya
+  // putaran pertama tidak macet.
+  useEffect(() => {
+    const urls = new Set<string>();
+    for (const q of questions) {
+      if (q.audioUrl) urls.add(q.audioUrl);
+      for (const o of q.options) {
+        if (o.audioUrl) urls.add(o.audioUrl);
+      }
+    }
+    for (const url of urls) {
+      if (!audioElsRef.current[url]) {
+        const el = new Audio(url);
+        el.preload = "auto";
+        audioElsRef.current[url] = el;
+      }
+    }
+  }, [questions, currentSectionId]);
+
+  // Reset penanda waktu habis saat attempt/section berganti.
   useEffect(() => {
     autoSubmitRef.current = false;
     setIsTimeUp(false);
     setSubmitError(null);
-  }, [attempt?.id]);
+  }, [attempt?.id, currentSectionId]);
 
-  // Countdown Timer Effect
+  const handleSubmitSection = useCallback(async () => {
+    if (submitting || !attempt) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch("/api/exam/submit-section", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId: attempt.id }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSubmitError(
+          data.error || "Gagal mengumpulkan maharoh. Coba lagi."
+        );
+        return;
+      }
+      setShowConfirmModal(false);
+      try {
+        window.localStorage.removeItem(localAnswersKey(attempt.id));
+      } catch {
+        // abaikan
+      }
+      setLoading(true);
+      await loadState(false);
+    } catch {
+      setSubmitError("Gagal menghubungi server. Coba lagi.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [submitting, attempt, loadState]);
+
+  // Countdown timer maharoh berjalan (tampilan saja — penegakan di server).
   useEffect(() => {
-    if (
-      !attempt ||
-      attempt.status !== "IN_PROGRESS" ||
-      remainingSeconds === null
-    ) {
+    if (!attempt || attempt.status !== "IN_PROGRESS" || remainingSeconds === null) {
       return;
     }
-
     if (remainingSeconds <= 0) {
-      // Waktu habis: kunci jawaban (server juga menolak jawaban baru) dan
-      // coba kumpulkan SEKALI dengan jeda acak 0-15 detik supaya 500 peserta
-      // tidak menembak submit di detik yang sama. Kalau gagal, TIDAK diulang
-      // otomatis — peserta memakai tombol Kumpulkan manual di banner.
       setIsTimeUp(true);
       if (!autoSubmitRef.current) {
         autoSubmitRef.current = true;
-        const jitter = Math.floor(Math.random() * 15000);
+        // Sekali saja, tanpa pengulangan otomatis.
         autoSubmitTimerRef.current = setTimeout(() => {
-          void handleSubmitExam(attempt.id);
-        }, jitter);
+          void handleSubmitSection();
+        }, 500);
       }
       return () => {
         if (autoSubmitTimerRef.current) {
@@ -323,7 +348,6 @@ export default function ExamPlayPage({
         }
       };
     }
-
     const timer = setInterval(() => {
       setRemainingSeconds((prev) => {
         if (prev === null || prev <= 1) {
@@ -333,48 +357,27 @@ export default function ExamPlayPage({
         return prev - 1;
       });
     }, 1000);
-
     return () => clearInterval(timer);
-  }, [attempt, remainingSeconds, handleSubmitExam]);
+  }, [attempt, remainingSeconds, handleSubmitSection]);
 
-  // Heartbeat aktivitas untuk monitoring: kirim tiap 30 detik selama
-  // ujian berjalan, supaya panitia tahu peserta masih online. Gagal
-  // diam-diam (tidak mengganggu peserta) dan berhenti saat ujian selesai.
+  // Sinkronisasi state berkala (30 detik) supaya penutupan otomatis
+  // dari server (waktu habis) tercermin walau tab sempat tidak aktif.
   useEffect(() => {
-    if (!attempt || attempt.status !== "IN_PROGRESS" || !attempt.startedAt) {
-      return;
-    }
-    let stopped = false;
-    const ping = () => {
-      if (stopped) return;
-      fetch("/api/exam/heartbeat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attemptId: attempt.id }),
-      }).catch(() => {});
-    };
-    ping();
-    const interval = setInterval(ping, 30000);
-    return () => {
-      stopped = true;
-      clearInterval(interval);
-    };
-  }, [attempt]);
+    if (!attempt || attempt.status !== "IN_PROGRESS") return;
+    const interval = setInterval(() => {
+      void loadState(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [attempt, loadState]);
 
-  // Kirim ulang jawaban tertunda: saat kembali online, saat tab kembali
-  // terlihat, dan berkala. Tanpa beban ekstra: bila tidak ada yang tertunda,
-  // tidak ada request sama sekali (hanya baca localStorage).
+  // Kirim ulang jawaban tertunda: saat kembali online / tab terlihat.
   useEffect(() => {
-    if (!attempt || attempt.status !== "IN_PROGRESS" || !attempt.startedAt) {
-      return;
-    }
+    if (!attempt || attempt.status !== "IN_PROGRESS") return;
     const flush = () => {
       if (flushingRef.current) return;
       flushingRef.current = true;
       void flushPendingForAttempt(attempt.id)
-        .then((allSent) => {
-          setSavingStatus(allSent ? "saved" : "error");
-        })
+        .then((allSent) => setSavingStatus(allSent ? "saved" : "error"))
         .finally(() => {
           flushingRef.current = false;
         });
@@ -393,8 +396,7 @@ export default function ExamPlayPage({
     };
   }, [attempt]);
 
-  // Bersihkan cadangan lokal begitu attempt selesai (terkumpul / waktu habis
-  // terfinalisasi) supaya tidak ada sisa jawaban di perangkat.
+  // Bersihkan cadangan lokal begitu attempt selesai.
   useEffect(() => {
     if (!attempt || attempt.status === "IN_PROGRESS") return;
     try {
@@ -410,15 +412,18 @@ export default function ExamPlayPage({
     isDoubtful: boolean
   ) {
     if (!attempt || attempt.status !== "IN_PROGRESS") return;
-    if (isTimeUp) return; // waktu habis: jawaban dikunci
+    if (isTimeUp) return;
 
     setAnswers((prev) => ({
       ...prev,
-      [questionId]: { selectedOptionId, isDoubtful },
+      [questionId]: {
+        selectedOptionId,
+        isDoubtful,
+        audioPlayCount: prev[questionId]?.audioPlayCount ?? 0,
+      },
     }));
     setSavingStatus("saving");
 
-    // Tulis cadangan lokal DULU (saved:false), baru kirim ke server.
     const now = Date.now();
     const local = readLocalAnswers(attempt.id);
     local[questionId] = {
@@ -442,17 +447,15 @@ export default function ExamPlayPage({
       });
 
       if (!res.ok) {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         if (errData.timeUp) {
           window.location.reload();
           return;
         }
         setSavingStatus("error");
-        return; // tetap tertunda di localStorage untuk kirim ulang
+        return;
       }
 
-      // Tandai sudah tersimpan — hanya bila entri lokal belum diubah lagi
-      // oleh klik yang lebih baru (klik baru menangani pengirimannya sendiri).
       const after = readLocalAnswers(attempt.id);
       const entry = after[questionId];
       if (
@@ -464,10 +467,63 @@ export default function ExamPlayPage({
         entry.saved = true;
         writeLocalAnswers(attempt.id, after);
       }
-
       setSavingStatus("saved");
     } catch {
       setSavingStatus("error");
+    }
+  }
+
+  // Audio: minta izin putar ke server DULU (server menghitung + menegakkan
+  // batas). Baru bila diizinkan, putar dari awal tanpa seek (tanpa kontrol
+  // bawaan browser, jadi tidak ada cara seek dari UI).
+  async function playAudio(questionId: string, url: string) {
+    if (!attempt || attempt.status !== "IN_PROGRESS") return;
+    if (playingUrl) return;
+    setAudioError(null);
+    try {
+      const res = await fetch("/api/exam/audio-play", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId: attempt.id, questionId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.allowed) {
+        setAnswers((prev) => ({
+          ...prev,
+          [questionId]: {
+            selectedOptionId: prev[questionId]?.selectedOptionId ?? null,
+            isDoubtful: prev[questionId]?.isDoubtful ?? false,
+            audioPlayCount: data.count ?? prev[questionId]?.audioPlayCount ?? 0,
+          },
+        }));
+        setAudioError(
+          data.error || "Batas pengulangan audio sudah habis untuk soal ini."
+        );
+        return;
+      }
+
+      setAnswers((prev) => ({
+        ...prev,
+        [questionId]: {
+          selectedOptionId: prev[questionId]?.selectedOptionId ?? null,
+          isDoubtful: prev[questionId]?.isDoubtful ?? false,
+          audioPlayCount: data.count,
+        },
+      }));
+
+      const el = audioElsRef.current[url] ?? new Audio(url);
+      audioElsRef.current[url] = el;
+      el.currentTime = 0;
+      setPlayingUrl(url);
+      el.onended = () => setPlayingUrl(null);
+      el.onerror = () => {
+        setPlayingUrl(null);
+        setAudioError("Audio gagal diputar. Periksa koneksi lalu coba lagi.");
+      };
+      await el.play();
+    } catch {
+      setPlayingUrl(null);
+      setAudioError("Audio gagal diputar. Periksa koneksi lalu coba lagi.");
     }
   }
 
@@ -485,7 +541,7 @@ export default function ExamPlayPage({
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
-  if (loading || !attempt || !sessionInfo) {
+  if (loading || !attempt) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50">
         <div className="text-sm font-medium text-zinc-500 animate-pulse">
@@ -495,7 +551,8 @@ export default function ExamPlayPage({
     );
   }
 
-  // JIKA UJIAN SUDAH SELESAI -> TAMPILKAN RINGKASAN HASIL & SKOR KECEPATAN
+  // JIKA UJIAN SUDAH SELESAI -> RINGKASAN SKOR PER MAHAROH + TOTAL
+  // (Pembahasan/kunci jawaban hadir di Fase 6.)
   if (attempt.status !== "IN_PROGRESS") {
     const mins = attempt.timeSpentSeconds
       ? Math.floor(attempt.timeSpentSeconds / 60)
@@ -515,77 +572,51 @@ export default function ExamPlayPage({
             <h1 className="text-2xl font-extrabold">
               Ujian Telah Diselesaikan!
             </h1>
-            <p className="text-xs text-zinc-300 mt-1">
-              {sessionInfo.title}
-            </p>
+            <p className="text-xs text-zinc-300 mt-1">{examTitle}</p>
           </div>
 
           <div className="p-6 sm:p-8 space-y-6">
-            {sessionInfo.resultsVisible ? (
-              <>
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
-                  <div className="text-xs font-bold uppercase tracking-wider text-amber-700 mb-1">
-                    Total Nilai Akhir Anda
-                  </div>
-                  <div className="text-5xl font-black text-zinc-900">
-                    {attempt.finalScore}
-                  </div>
-                  <div className="text-xs text-amber-700 mt-2">
-                    Diselesaikan dalam waktu{" "}
-                    <strong>
-                      {mins} menit {secs} detik
-                    </strong>
-                  </div>
-                </div>
-
-                <div
-                  className={`grid gap-3 text-sm ${
-                    sessionInfo?.speedScoringMode === "TIE_BREAKER"
-                      ? "grid-cols-1"
-                      : "grid-cols-2"
-                  }`}
-                >
-                  <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200">
-                    <div className="text-xs text-zinc-500 flex items-center gap-1">
-                      <Trophy className="w-3.5 h-3.5 text-amber-600" /> Skor Bobot
-                      Jawaban
-                    </div>
-                    <div className="text-xl font-bold text-zinc-900 mt-1">
-                      {attempt.rawScore}
-                      {attempt.penaltyScore !== null &&
-                        attempt.penaltyScore > 0 && (
-                          <span className="text-xs text-red-600 ml-1">
-                            (-{attempt.penaltyScore})
-                          </span>
-                        )}
-                    </div>
-                  </div>
-
-                  {sessionInfo?.speedScoringMode !== "TIE_BREAKER" && (
-                    <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200">
-                      <div className="text-xs text-amber-800 flex items-center gap-1">
-                        <Zap className="w-3.5 h-3.5 text-amber-600" /> Bonus Kecepatan
-                      </div>
-                      <div className="text-xl font-bold text-amber-900 mt-1">
-                        +{attempt.speedBonus}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="space-y-4 text-center">
-                <p className="text-sm text-zinc-700 leading-relaxed">
-                  Terima kasih atas partisipasi Anda dalam TOAFL Markaz
-                  Arabiyah. Semoga Anda mendapatkan hasil yang
-                  maksimal.
-                </p>
-                <p className="text-sm text-zinc-500 leading-relaxed">
-                  Transkrip nilai dan peringkat akan ditampilkan setelah
-                  pengumuman resmi pada tanggal 5 November 2026.
-                </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+              <div className="text-xs font-bold uppercase tracking-wider text-amber-700 mb-1">
+                Total Nilai Akhir Anda
               </div>
-            )}
+              <div className="text-5xl font-black text-zinc-900">
+                {attempt.finalScore}
+              </div>
+              <div className="text-xs text-amber-700 mt-2">
+                Diselesaikan dalam waktu{" "}
+                <strong>
+                  {mins} menit {secs} detik
+                </strong>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="font-bold text-sm text-zinc-900">
+                Skor per Maharoh
+              </h2>
+              {sections.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between px-4 py-3 rounded-xl border border-zinc-200 bg-zinc-50 text-sm"
+                >
+                  <span className="font-semibold text-zinc-800">
+                    {s.maharohName}
+                    <span className="text-xs text-zinc-500 font-normal">
+                      {" "}
+                      • {s.questionCount} soal •{" "}
+                      {s.status === "TIME_UP" ? "waktu habis" : "dikumpulkan"}
+                    </span>
+                  </span>
+                  <span className="font-black text-zinc-900">{s.score}</span>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-zinc-500 text-center">
+              Pembahasan soal (kunci + penjelasan) akan tampil di sini pada
+              tahap berikutnya.
+            </p>
 
             <button
               onClick={() => router.push("/exam")}
@@ -601,8 +632,6 @@ export default function ExamPlayPage({
   }
 
   const currentQuestion = questions[currentIdx];
-  // Arah tulisan dideteksi otomatis dari isi soal (helper yang sama dengan
-  // halaman manajemen soal), bukan dari field direction tersimpan.
   const questionDirection = currentQuestion
     ? getTextDirection(currentQuestion.content)
     : "LTR";
@@ -610,28 +639,33 @@ export default function ExamPlayPage({
     ? answers[currentQuestion.id] || {
         selectedOptionId: null,
         isDoubtful: false,
+        audioPlayCount: 0,
       }
-    : { selectedOptionId: null, isDoubtful: false };
+    : { selectedOptionId: null, isDoubtful: false, audioPlayCount: 0 };
 
-  const answeredCount = Object.values(answers).filter(
-    (a) => a.selectedOptionId
+  const answeredCount = questions.filter(
+    (q) => answers[q.id]?.selectedOptionId
   ).length;
-  const doubtfulCount = Object.values(answers).filter((a) => a.isDoubtful)
-    .length;
+  const doubtfulCount = questions.filter(
+    (q) => answers[q.id]?.isDoubtful
+  ).length;
+
+  const currentMaharoh = maharohs.find((m) => m.id === attempt.currentMaharohId);
+  const audioLimit = currentMaharoh?.audioRepeats ?? 2;
 
   const arabicSizeClass =
     fontScale === "xlarge"
       ? "text-3xl sm:text-4xl"
       : fontScale === "large"
-      ? "text-2xl sm:text-3xl"
-      : "text-xl sm:text-2xl";
+        ? "text-2xl sm:text-3xl"
+        : "text-xl sm:text-2xl";
 
   const optionArabicSizeClass =
     fontScale === "xlarge"
       ? "text-2xl sm:text-3xl"
       : fontScale === "large"
-      ? "text-xl sm:text-2xl"
-      : "text-lg sm:text-xl";
+        ? "text-xl sm:text-2xl"
+        : "text-lg sm:text-xl";
 
   return (
     <div className="min-h-screen bg-zinc-100 flex flex-col">
@@ -640,9 +674,14 @@ export default function ExamPlayPage({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <div className="min-w-0">
             <h1 className="font-bold text-sm sm:text-base truncate">
-              {sessionInfo.title}
+              {examTitle}
             </h1>
             <div className="flex items-center gap-3 text-xs text-amber-300">
+              <span>
+                Maharoh {currentMaharohName} — Soal {currentIdx + 1}/
+                {questions.length}
+              </span>
+              <span>•</span>
               <span>
                 Terjawab: {answeredCount}/{questions.length}
               </span>
@@ -651,13 +690,12 @@ export default function ExamPlayPage({
                 {savingStatus === "saving"
                   ? "Menyimpan..."
                   : savingStatus === "error"
-                  ? "Gagal simpan, mencoba ulang otomatis"
-                  : "Tersimpan otomatis"}
+                    ? "Gagal simpan, mencoba ulang otomatis"
+                    : "Tersimpan otomatis"}
               </span>
             </div>
           </div>
 
-          {/* Server Synced Countdown Timer */}
           <div className="flex items-center gap-3">
             <div
               className={`px-4 py-2 rounded-xl font-mono font-black text-base sm:text-lg flex items-center gap-2 border ${
@@ -675,8 +713,8 @@ export default function ExamPlayPage({
               className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow transition cursor-pointer"
             >
               <Send className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Selesai &amp; Kumpulkan</span>
-              <span className="sm:hidden">Selesai</span>
+              <span className="hidden sm:inline">Kumpulkan Maharoh</span>
+              <span className="sm:hidden">Kumpulkan</span>
             </button>
           </div>
         </div>
@@ -689,7 +727,7 @@ export default function ExamPlayPage({
           {isTimeUp && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-5 space-y-2">
               <p className="font-bold text-sm text-red-800">
-                Waktu habis. Jawaban Anda sudah tersimpan.
+                Waktu maharoh ini habis. Jawaban Anda sudah tersimpan.
               </p>
               {submitError ? (
                 <>
@@ -697,21 +735,26 @@ export default function ExamPlayPage({
                   <button
                     type="button"
                     disabled={submitting}
-                    onClick={() => handleSubmitExam(attempt.id)}
+                    onClick={() => void handleSubmitSection()}
                     className="px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs cursor-pointer"
                   >
-                    {submitting ? "Mengumpulkan..." : "Kumpulkan Sekarang"}
+                    {submitting ? "Mengumpulkan..." : "Lanjut ke Maharoh Berikut"}
                   </button>
                 </>
               ) : (
                 <p className="text-xs text-red-700">
-                  Nilai Anda sedang difinalisasi. Bila halaman ini tidak
-                  berubah, klik tombol Selesai &amp; Kumpulkan di atas.
+                  Maharoh sedang ditutup otomatis. Bila halaman ini tidak
+                  berubah, klik tombol Kumpulkan Maharoh di atas.
                 </p>
               )}
             </div>
           )}
-          {currentQuestion && (
+          {audioError && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+              {audioError}
+            </div>
+          )}
+          {currentQuestion ? (
             <div className="bg-white rounded-xl shadow-xs border border-zinc-200 overflow-hidden flex-1 flex flex-col justify-between">
               <div>
                 {/* Question Header Bar */}
@@ -720,11 +763,9 @@ export default function ExamPlayPage({
                     <span className="px-3 py-1 rounded-lg bg-zinc-900 text-white font-bold text-xs">
                       SOAL NO. {currentIdx + 1}
                     </span>
-                    {currentQuestion.category && (
-                      <span className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-semibold text-xs">
-                        {currentQuestion.category.name}
-                      </span>
-                    )}
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-semibold text-xs">
+                      Maharoh {currentMaharohName}
+                    </span>
                     <span className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-semibold text-xs">
                       Bobot: {currentQuestion.weight} Poin
                     </span>
@@ -782,50 +823,127 @@ export default function ExamPlayPage({
                     {renderRichText(currentQuestion.content)}
                   </div>
 
+                  {/* Audio soal (bila ada) */}
+                  {currentQuestion.audioUrl && (
+                    <div className="mt-4 flex items-center gap-3 p-4 rounded-xl border border-zinc-200 bg-zinc-50">
+                      <button
+                        type="button"
+                        disabled={
+                          isTimeUp ||
+                          playingUrl !== null ||
+                          currentAnswer.audioPlayCount >= audioLimit
+                        }
+                        onClick={() =>
+                          void playAudio(
+                            currentQuestion.id,
+                            currentQuestion.audioUrl as string
+                          )
+                        }
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
+                      >
+                        {playingUrl === currentQuestion.audioUrl ? (
+                          <>
+                            <Volume2 className="w-4 h-4 animate-pulse" />
+                            Memutar...
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4 fill-current" />
+                            Putar Audio Soal
+                          </>
+                        )}
+                      </button>
+                      <span className="text-xs text-zinc-600">
+                        Diputar {currentAnswer.audioPlayCount}/{audioLimit}x
+                        (dari awal, tanpa seek)
+                      </span>
+                    </div>
+                  )}
+
                   {/* Options List */}
                   <div className="mt-6 space-y-3">
                     {currentQuestion.options.map((opt) => {
                       const isSelected =
                         currentAnswer.selectedOptionId === opt.id;
                       return (
-                        <button
+                        <div
                           key={opt.id}
-                          type="button"
-                          disabled={isTimeUp}
-                          onClick={() =>
-                            saveAnswerToServer(
-                              currentQuestion.id,
-                              opt.id,
-                              currentAnswer.isDoubtful
-                            )
-                          }
-                          className={`w-full p-4 rounded-xl border-2 transition flex items-center gap-4 text-left cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                          className={`w-full p-4 rounded-xl border-2 transition flex items-center gap-4 text-left ${
                             isSelected
                               ? "border-amber-500 bg-amber-50/70 shadow-xs"
                               : "border-zinc-200 hover:border-amber-300 bg-white"
                           }`}
                         >
-                          <div
-                            className={`w-9 h-9 rounded-xl font-bold text-sm flex items-center justify-center shrink-0 transition ${
-                              isSelected
-                                ? "bg-zinc-900 text-white"
-                                : "bg-zinc-100 text-zinc-700"
-                            }`}
+                          <button
+                            type="button"
+                            disabled={isTimeUp}
+                            onClick={() =>
+                              void saveAnswerToServer(
+                                currentQuestion.id,
+                                opt.id,
+                                currentAnswer.isDoubtful
+                              )
+                            }
+                            className="flex items-center gap-4 flex-1 text-left cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            {opt.label}
-                          </div>
+                            <div
+                              className={`w-9 h-9 rounded-xl font-bold text-sm flex items-center justify-center shrink-0 transition ${
+                                isSelected
+                                  ? "bg-zinc-900 text-white"
+                                  : "bg-zinc-100 text-zinc-700"
+                              }`}
+                            >
+                              {opt.label}
+                            </div>
 
-                          <div
-                            dir={getTextDirection(opt.content) === "RTL" ? "rtl" : "ltr"}
-                            className={`flex-1 ${
-                              getTextDirection(opt.content) === "RTL"
-                                ? `font-arabic ${optionArabicSizeClass} text-right`
-                                : "text-sm sm:text-base text-zinc-800"
-                            }`}
-                          >
-                            {renderRichText(opt.content)}
-                          </div>
-                        </button>
+                            <div
+                              dir={
+                                getTextDirection(opt.content) === "RTL"
+                                  ? "rtl"
+                                  : "ltr"
+                              }
+                              className={`flex-1 ${
+                                getTextDirection(opt.content) === "RTL"
+                                  ? `font-arabic ${optionArabicSizeClass} text-right`
+                                  : "text-sm sm:text-base text-zinc-800"
+                              }`}
+                            >
+                              {opt.contentType === "AUDIO"
+                                ? "Jawaban audio — dengarkan di samping"
+                                : renderRichText(opt.content)}
+                            </div>
+                          </button>
+
+                          {opt.contentType === "AUDIO" && opt.audioUrl && (
+                            <button
+                              type="button"
+                              disabled={
+                                isTimeUp ||
+                                playingUrl !== null ||
+                                currentAnswer.audioPlayCount >= audioLimit
+                              }
+                              onClick={() =>
+                                void playAudio(
+                                  currentQuestion.id,
+                                  opt.audioUrl as string
+                                )
+                              }
+                              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
+                            >
+                              {playingUrl === opt.audioUrl ? (
+                                <>
+                                  <Volume2 className="w-3.5 h-3.5 animate-pulse" />
+                                  Memutar...
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="w-3.5 h-3.5 fill-current" />
+                                  Putar
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -848,7 +966,7 @@ export default function ExamPlayPage({
                   type="button"
                   disabled={isTimeUp}
                   onClick={() =>
-                    saveAnswerToServer(
+                    void saveAnswerToServer(
                       currentQuestion.id,
                       currentAnswer.selectedOptionId,
                       !currentAnswer.isDoubtful
@@ -886,19 +1004,64 @@ export default function ExamPlayPage({
                     className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer"
                   >
                     <Send className="w-4 h-4" />
-                    <span>Selesai Ujian</span>
+                    <span>Kumpulkan Maharoh</span>
                   </button>
                 )}
               </div>
             </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-xs border border-zinc-200 p-8 text-center text-sm text-zinc-500">
+              Memuat maharoh berikutnya...
+            </div>
           )}
         </div>
 
-        {/* Question Number Grid Sidebar (Right 4/12) */}
+        {/* Sidebar: daftar maharoh + navigasi nomor soal */}
         <div className="lg:col-span-4 space-y-4">
           <div className="bg-white rounded-xl shadow-xs border border-zinc-200 p-5">
             <h2 className="font-bold text-sm text-zinc-900 mb-3">
-              Navigasi Nomor Soal
+              Maharoh Ujian
+            </h2>
+            <div className="space-y-2">
+              {maharohs.map((m) => {
+                const sec = sections.find((s) => s.maharohId === m.id);
+                const isCurrent = m.id === attempt.currentMaharohId && attempt.status === "IN_PROGRESS";
+                const done = sec && sec.status !== "IN_PROGRESS";
+                return (
+                  <div
+                    key={m.id}
+                    className={`flex items-center justify-between px-3 py-2.5 rounded-lg border text-sm ${
+                      isCurrent
+                        ? "border-amber-500 bg-amber-50/70"
+                        : "border-zinc-200 bg-zinc-50"
+                    }`}
+                  >
+                    <span className="font-semibold text-zinc-800 flex items-center gap-2">
+                      {done ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      ) : isCurrent ? (
+                        <Clock className="w-4 h-4 text-amber-600" />
+                      ) : (
+                        <Lock className="w-4 h-4 text-zinc-400" />
+                      )}
+                      {m.name}
+                    </span>
+                    <span className="text-xs text-zinc-500">
+                      {done
+                        ? `Skor ${sec.score}`
+                        : isCurrent
+                          ? "Berjalan"
+                          : "Terkunci"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-xs border border-zinc-200 p-5">
+            <h2 className="font-bold text-sm text-zinc-900 mb-3">
+              Navigasi Nomor Soal — {currentMaharohName}
             </h2>
 
             <div className="grid grid-cols-5 gap-2">
@@ -946,33 +1109,17 @@ export default function ExamPlayPage({
               </div>
             </div>
           </div>
-
-          <div className="bg-zinc-900 text-white rounded-xl p-5 space-y-2">
-            <div className="flex items-center gap-2 text-amber-300 font-bold text-xs uppercase tracking-wider">
-              <Zap className="w-4 h-4" />
-              <span>
-                {sessionInfo?.speedScoringMode === "TIE_BREAKER"
-                  ? "Penentu Peringkat Seri"
-                  : "Info Penilaian Kecepatan"}
-              </span>
-            </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              {sessionInfo?.speedScoringMode === "TIE_BREAKER"
-                ? "Bila ada nilai yang sama, peserta yang selesai lebih dulu menempati peringkat lebih tinggi."
-                : "Semakin cepat Anda menyelesaikan ujian dengan jawaban yang tepat, semakin besar tambahan poin kecepatan yang Anda peroleh."}
-            </p>
-          </div>
         </div>
       </main>
 
-      {/* Modal Konfirmasi Selesai Ujian */}
+      {/* Modal Konfirmasi Kumpulkan Maharoh */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 bg-zinc-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border border-zinc-200 space-y-4">
             <div className="flex items-center gap-3 text-amber-600">
               <AlertTriangle className="w-7 h-7 shrink-0" />
               <h3 className="text-lg font-bold text-zinc-900">
-                Kumpulkan Jawaban Sekarang?
+                Kumpulkan Maharoh {currentMaharohName}?
               </h3>
             </div>
 
@@ -981,8 +1128,8 @@ export default function ExamPlayPage({
                 Anda telah menjawab{" "}
                 <strong className="text-zinc-900">
                   {answeredCount} dari {questions.length} soal
-                </strong>
-                .
+                </strong>{" "}
+                di maharoh ini.
               </p>
               {questions.length - answeredCount > 0 && (
                 <p className="text-red-600 font-medium">
@@ -996,8 +1143,8 @@ export default function ExamPlayPage({
                 </p>
               )}
               <p className="text-xs text-zinc-500 pt-1">
-                Setelah dikumpulkan, waktu pengerjaan Anda akan dikunci dan skor
-                akhir beserta bonus kecepatan langsung dihitung.
+                Setelah dikumpulkan, maharoh ini TERKUNCI dan Anda lanjut ke
+                maharoh berikutnya. Jawaban tidak bisa diubah lagi.
               </p>
             </div>
 
@@ -1016,10 +1163,10 @@ export default function ExamPlayPage({
               <button
                 type="button"
                 disabled={submitting}
-                onClick={() => handleSubmitExam(attempt.id)}
+                onClick={() => void handleSubmitSection()}
                 className="px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs cursor-pointer"
               >
-                {submitting ? "Mengumpulkan..." : "Ya, Selesai & Kumpulkan"}
+                {submitting ? "Mengumpulkan..." : "Ya, Kumpulkan Maharoh"}
               </button>
             </div>
           </div>
@@ -1028,4 +1175,3 @@ export default function ExamPlayPage({
     </div>
   );
 }
-
