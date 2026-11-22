@@ -7,12 +7,11 @@ import {
   isLoginRateLimited,
   recordLoginFailure,
 } from "@/lib/rateLimit";
-import { verifyTurnstileToken } from "@/lib/turnstile";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { username, password, turnstileToken } = body;
+    const { username, password } = body;
 
     if (!username || !password) {
       return NextResponse.json(
@@ -35,17 +34,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // Turnstile: token diverifikasi server-side SEBELUM memeriksa
-    // kredensial, supaya bot tidak bisa membanjiri percobaan login.
-    // Kegagalan verifikasi ikut dihitung sebagai percobaan gagal.
-    const turnstile = await verifyTurnstileToken(turnstileToken);
-    if (!turnstile.ok) {
-      recordLoginFailure(clientIp);
-      return NextResponse.json(
-        { error: turnstile.error || "Verifikasi keamanan gagal." },
-        { status: 400 }
-      );
-    }
+    // Turnstile DIMATIKAN atas perintah user (5 Nov 2026, malam
+    // pengumuman): login hanya username + password. Lib verifikasi
+    // tetap ada di src/lib/turnstile.ts bila suatu saat mau dinyalakan
+    // lagi. Rate limiting percobaan gagal di bawah ini tetap jalan.
 
     const user = await prisma.user.findUnique({
       where: { username: username.trim() },
