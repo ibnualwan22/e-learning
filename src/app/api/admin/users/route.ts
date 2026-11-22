@@ -90,6 +90,20 @@ export async function POST(req: Request) {
       );
     }
 
+    // Email unik (satu orang satu akun) — cek eksplisit supaya duplikat
+    // memberi pesan yang jelas, bukan error 500 dari constraint DB.
+    if (cleanEmail) {
+      const emailTaken = await prisma.user.findUnique({
+        where: { email: cleanEmail },
+      });
+      if (emailTaken) {
+        return NextResponse.json(
+          { error: "Email sudah terdaftar untuk akun lain" },
+          { status: 400 }
+        );
+      }
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({

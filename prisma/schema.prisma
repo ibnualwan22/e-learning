@@ -28,6 +28,22 @@ enum AttemptStatus {
   TIME_UP
 }
 
+enum RegistrationMode {
+  SIMULASI
+  CHAMPION
+}
+
+enum RegistrationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum OptionContentType {
+  TEXT
+  AUDIO
+}
+
 model User {
   id           String        @id @default(cuid())
   username     String        @unique
@@ -36,9 +52,11 @@ model User {
   role         Role          @default(PARTICIPANT)
   institution  String?
   phone        String?
-  email        String?
+  email        String?       @unique
+  whatsapp     String?       @unique
   isActive     Boolean       @default(true)
   attempts     ExamAttempt[]
+  registrations Registration[]
   emailLogs    EmailLog[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -47,6 +65,26 @@ model User {
 enum EmailStatus {
   SENT
   FAILED
+}
+
+// TOAFL Fase 1: pendaftaran peserta per mode + level. Simulasi dibuat
+// langsung VERIFIED; Champion PENDING sampai admin memverifikasi.
+model Registration {
+  id              String             @id @default(cuid())
+  userId          String
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mode            RegistrationMode
+  levelId         String
+  level           Level              @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  status          RegistrationStatus @default(PENDING)
+  paymentProofUrl String?
+  verifiedBy      String?
+  verifiedAt      DateTime?
+  rejectionReason String?            @db.Text
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([userId, mode, levelId])
 }
 
 model EmailLog {
@@ -67,10 +105,42 @@ model QuestionCategory {
   createdAt   DateTime   @default(now())
 }
 
+// TOAFL Fase 1: level ujian (dinamis, diatur admin). Bank soal milik level.
+model Level {
+  id            String         @id @default(cuid())
+  name          String         @unique
+  description   String?
+  order         Int            @default(0)
+  isActive      Boolean        @default(true)
+  questions     Question[]
+  registrations Registration[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+// TOAFL Fase 1: maharoh ujian (dinamis, diatur admin).
+model Maharoh {
+  id                  String     @id @default(cuid())
+  name                String     @unique
+  description         String?
+  order               Int        @default(0)
+  defaultMinutes      Int        @default(45)
+  defaultAudioRepeats Int        @default(2)
+  isActive            Boolean    @default(true)
+  questions           Question[]
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+}
+
 model Question {
   id          String            @id @default(cuid())
   categoryId  String?
   category    QuestionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  levelId     String?
+  level       Level?            @relation(fields: [levelId], references: [id], onDelete: SetNull)
+  maharohId   String?
+  maharoh     Maharoh?          @relation(fields: [maharohId], references: [id], onDelete: SetNull)
+  audioUrl    String?
   content     String            @db.Text
   direction   TextDirection     @default(RTL)
   weight      Float             @default(4.0)
@@ -90,6 +160,8 @@ model QuestionOption {
   content    String          @db.Text
   direction  TextDirection   @default(RTL)
   isCorrect  Boolean         @default(false)
+  contentType OptionContentType @default(TEXT)
+  audioUrl   String?
   answers    AttemptAnswer[]
 }
 

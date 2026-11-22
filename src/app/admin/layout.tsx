@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
+  GraduationCap,
+  Languages,
   BookOpen,
   CalendarClock,
   Activity,
@@ -18,6 +20,8 @@ import {
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/level", label: "Level TOAFL", icon: GraduationCap },
+  { href: "/admin/maharoh", label: "Maharoh", icon: Languages },
   { href: "/admin/questions", label: "Bank Soal & Bobot", icon: BookOpen },
   { href: "/admin/sessions", label: "Manajemen Sesi & Token", icon: CalendarClock },
   { href: "/admin/monitoring", label: "Monitoring & Peringkat", icon: Activity },
