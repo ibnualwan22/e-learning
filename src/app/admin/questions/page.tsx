@@ -104,13 +104,10 @@ export default function AdminQuestionsPage() {
     loadData();
   }, []);
 
-  // Default soal manual baru: kategori "Olimpiade" (bila ada) dan bobot 2
-  // — mempercepat input soal lomba (50 soal x bobot 2 = 100).
+  // Default soal manual baru: kategori pertama dan bobot 2.
   function openCreateModal() {
     setEditingId(null);
-    const defaultCat =
-      categories.find((c) => c.name.toLowerCase() === "olimpiade") ||
-      categories[0];
+    const defaultCat = categories[0];
     setCategoryId(defaultCat?.id || "");
     setWeight(2);
     setContent("");
@@ -537,7 +534,7 @@ export default function AdminQuestionsPage() {
           <div className="bg-white rounded-xl max-w-3xl w-full p-6 shadow-2xl border border-zinc-200 my-8 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-zinc-200 mb-5">
               <h2 className="text-lg font-bold text-zinc-900">
-                {editingId ? "Edit Soal Olimpiade" : "Tambah Soal Baru"}
+                {editingId ? "Edit Soal" : "Tambah Soal Baru"}
               </h2>
               <button
                 onClick={() => setShowModal(false)}

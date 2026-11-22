@@ -114,6 +114,7 @@ model Level {
   isActive      Boolean        @default(true)
   questions     Question[]
   registrations Registration[]
+  exams         Exam[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 }
@@ -128,8 +129,43 @@ model Maharoh {
   defaultAudioRepeats Int        @default(2)
   isActive            Boolean    @default(true)
   questions           Question[]
+  examMaharohs        ExamMaharoh[]
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
+}
+
+// TOAFL Fase 2: ujian per mode + level. Waktu, jumlah soal, dan batas
+// audio diatur PER MAHAROH di ExamMaharoh — bukan satu durasi global
+// seperti ExamSession Olimpiade. Jadwal (startTime/endTime) hanya berlaku
+// untuk CHAMPION; SIMULASI null = kapan saja.
+model Exam {
+  id                    String        @id @default(cuid())
+  mode                  RegistrationMode
+  levelId               String
+  level                 Level         @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  title                 String
+  description           String?       @db.Text
+  isActive              Boolean       @default(false)
+  startTime             DateTime?
+  endTime               DateTime?
+  autoSubmitOnViolation Boolean       @default(true)
+  maharohs              ExamMaharoh[]
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+}
+
+model ExamMaharoh {
+  id           String  @id @default(cuid())
+  examId       String
+  exam         Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  maharohId    String
+  maharoh      Maharoh @relation(fields: [maharohId], references: [id], onDelete: Cascade)
+  orderIndex   Int     @default(0)
+  minutes      Int
+  audioRepeats Int     @default(2)
+  questionCount Int
+
+  @@unique([examId, maharohId])
 }
 
 model Question {

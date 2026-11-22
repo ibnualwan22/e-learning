@@ -489,7 +489,7 @@ export default function AdminSessionsPage() {
                     required
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Contoh: Babak Penyisihan Olimpiade Turats 2026"
+                    placeholder="Contoh: TOAFL Champion 2026"
                     className="w-full px-3.5 py-2 rounded-xl border border-zinc-300 text-sm"
                   />
                 </div>

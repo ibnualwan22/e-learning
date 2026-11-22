@@ -142,7 +142,7 @@ export default function ParticipantDashboardPage() {
             </div>
             <div>
               <div className="font-bold text-sm sm:text-base tracking-tight">
-                Olimpiade Turats CBT
+                TOAFL CBT
               </div>
               <div className="text-xs text-amber-300">
                 Portal Peserta Perlombaan
@@ -192,7 +192,7 @@ export default function ParticipantDashboardPage() {
                     {user.name}
                   </div>
                   <div className="text-xs font-semibold text-amber-700 mt-0.5">
-                    Peserta Olimpiade Nahwu Shorof Nasional 2026
+                    Peserta TOAFL Markaz Arabiyah
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -300,7 +300,7 @@ export default function ParticipantDashboardPage() {
               <p>
                 <b>
                   Token akan dibagikan panitia saat simulasi dan pelaksanaan
-                  olimpiade.
+                  ujian.
                 </b>{" "}
                 Bila sudah menerima token, masukkan di atas untuk membaca Tata
                 Tertib dan memulai ujian.

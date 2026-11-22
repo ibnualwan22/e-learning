@@ -119,26 +119,30 @@ export default function LoginPage() {
         <div className="relative z-10">
           <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm font-medium mb-8">
             <BookOpen className="w-4 h-4" />
-            <span>Computer-Based Test (CBT) • Olimpiade Turats 2026</span>
+            <span>Computer-Based Test (CBT) • TOAFL Markaz Arabiyah</span>
           </div>
 
           <h1 className="text-3xl lg:text-5xl font-extrabold tracking-tight text-zinc-900 leading-tight mb-6">
-            Olimpiade Nahwu &amp; Shorof{" "}
-            <span className="text-yellow-700">Nasional</span>
+            TOAFL{" "}
+            <span className="text-yellow-700">Markaz Arabiyah</span>
           </h1>
 
           <p className="text-zinc-600 text-base lg:text-lg max-w-xl leading-relaxed">
-            Sistem ujian pilihan ganda berbasis kitab kuning untuk satu bidang lomba Nahwu Shorof (Kitab Al-Jurumiyah dan Amtsilatu Tasrifiyyah), dengan sistem token sesi, hitung mundur waktu server, 50 soal pilihan ganda, dan nilai maksimal 100.
+            Ujian bahasa Arab berbasis komputer (CBT) dengan dua mode: Simulasi
+            untuk latihan kapan saja dan TOAFL Champion sebagai ajang
+            kompetisi. Soal pilihan ganda per maharoh (Istima', Qawa'id,
+            Qira'ah), timer per maharoh, dan penilaian otomatis.
           </p>
         </div>
 
         <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-4 mt-10">
           <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200">
             <div className="text-yellow-700 font-bold text-sm mb-1">
-              1. Login &amp; Token
+              1. Login &amp; Pilih Mode
             </div>
             <p className="text-xs text-zinc-600">
-              Masuk dengan akun peserta lalu masukkan token sesi perlombaan.
+              Masuk dengan akun peserta, lalu pilih Simulasi atau TOAFL
+              Champion.
             </p>
           </div>
           <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200">
@@ -146,15 +150,17 @@ export default function LoginPage() {
               2. Baca Tata Tertib
             </div>
             <p className="text-xs text-zinc-600">
-              Pahami jumlah soal dan durasi sesi sebelum menekan tombol Mulai Ujian.
+              Pahami maharoh, jumlah soal, dan durasi tiap maharoh sebelum
+              menekan tombol Mulai Ujian.
             </p>
           </div>
           <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200">
             <div className="text-yellow-700 font-bold text-sm mb-1">
-              3. Skor Tertinggi
+              3. Skor &amp; Hasil
             </div>
             <p className="text-xs text-zinc-600">
-              Nilai tertinggi menang; nilai sama ditentukan peserta yang lebih dulu selesai.
+              Skor dihitung otomatis per maharoh; Simulasi langsung tampil
+              beserta pembahasan.
             </p>
           </div>
         </div>
@@ -163,11 +169,9 @@ export default function LoginPage() {
       {/* Right Login Form */}
       <div className="order-1 lg:order-2 lg:w-5/12 flex items-center justify-center p-6 sm:p-12 bg-zinc-50 text-zinc-900">
         <div className="w-full max-w-md bg-white rounded-xl shadow-lg border border-zinc-200/80 p-8">
-          <img
-            src="/images/logo-markaz-turats.jpg"
-            alt="Logo Markaz Turats"
-            className="h-16 w-auto mx-auto mb-4"
-          />
+          <div className="h-16 w-16 mx-auto mb-4 rounded-2xl bg-yellow-600 text-white flex items-center justify-center font-black text-3xl">
+            T
+          </div>
           <div className="mb-6">
             <h2 className="text-2xl font-bold text-zinc-900">
               Masuk ke Akun Anda

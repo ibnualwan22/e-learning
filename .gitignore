@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# TOAFL: file audio yang diunggah admin (disimpan lokal di VPS, bukan di git)
+/public/uploads/

@@ -576,8 +576,8 @@ export default function ExamPlayPage({
             ) : (
               <div className="space-y-4 text-center">
                 <p className="text-sm text-zinc-700 leading-relaxed">
-                  Terima kasih atas partisipasi Anda dalam Olimpiade Nahwu
-                  Shorof Nasional 2026. Semoga Anda mendapatkan hasil yang
+                  Terima kasih atas partisipasi Anda dalam TOAFL Markaz
+                  Arabiyah. Semoga Anda mendapatkan hasil yang
                   maksimal.
                 </p>
                 <p className="text-sm text-zinc-500 leading-relaxed">

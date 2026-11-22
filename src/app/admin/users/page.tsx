@@ -47,7 +47,7 @@ export default function AdminUsersPage() {
     setName("");
     setPassword("");
     setRole("ADMIN");
-    setInstitution("Panitia Olimpiade Turats");
+    setInstitution("Markaz Arabiyah");
     setIsActive(true);
     setShowModal(true);
   }

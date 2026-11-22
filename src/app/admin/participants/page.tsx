@@ -62,7 +62,7 @@ export default function AdminParticipantsPage() {
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [resetResult, setResetResult] = useState<{ username: string; password: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const LOGIN_URL = "https://olimpiade-turats.markazarabiyah.site";
+  const LOGIN_URL = "https://e-learning.markazarabiyah.site";
 
   async function copyResetField(key: string, text: string) {
     try {
@@ -302,11 +302,11 @@ export default function AdminParticipantsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-zinc-900">
-            Daftar Peserta Olimpiade
+            Daftar Peserta TOAFL
           </h1>
           <p className="text-sm text-zinc-500 mt-0.5">
-            Kelola akun login peserta, asal pesantren/instansi, dan kategori
-            perlombaan.
+            Kelola akun login peserta, asal instansi, dan pendaftaran
+            Simulasi / Champion.
           </p>
         </div>
 

@@ -18,6 +18,11 @@ export async function GET() {
     totalAttempts,
     inProgressAttempts,
     finishedAttempts,
+    totalToaflQuestions,
+    totalLevels,
+    totalMaharohs,
+    totalExams,
+    activeExams,
   ] = await Promise.all([
     prisma.question.count(),
     prisma.questionCategory.count(),
@@ -30,6 +35,13 @@ export async function GET() {
     prisma.examAttempt.count({
       where: { status: { in: ["SUBMITTED", "TIME_UP"] } },
     }),
+    // TOAFL Fase 2: bank soal = soal yang punya level (bukan soal
+    // Olimpiade lama yang hanya punya kategori).
+    prisma.question.count({ where: { levelId: { not: null } } }),
+    prisma.level.count(),
+    prisma.maharoh.count(),
+    prisma.exam.count(),
+    prisma.exam.count({ where: { isActive: true } }),
   ]);
 
   return NextResponse.json({
@@ -43,6 +55,11 @@ export async function GET() {
       totalAttempts,
       inProgressAttempts,
       finishedAttempts,
+      totalToaflQuestions,
+      totalLevels,
+      totalMaharohs,
+      totalExams,
+      activeExams,
     },
   });
 }

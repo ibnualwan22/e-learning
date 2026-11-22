@@ -8,6 +8,8 @@ import {
   GraduationCap,
   Languages,
   BookOpen,
+  Library,
+  ClipboardList,
   CalendarClock,
   Activity,
   Users,
@@ -22,6 +24,8 @@ const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/level", label: "Level TOAFL", icon: GraduationCap },
   { href: "/admin/maharoh", label: "Maharoh", icon: Languages },
+  { href: "/admin/bank-soal", label: "Bank Soal TOAFL", icon: Library },
+  { href: "/admin/exam", label: "Exam TOAFL", icon: ClipboardList },
   { href: "/admin/questions", label: "Bank Soal & Bobot", icon: BookOpen },
   { href: "/admin/sessions", label: "Manajemen Sesi & Token", icon: CalendarClock },
   { href: "/admin/monitoring", label: "Monitoring & Peringkat", icon: Activity },
@@ -41,16 +45,14 @@ function SidebarContent({
   return (
     <div className="flex flex-col h-full">
       <div className="p-5 border-b border-zinc-200 flex items-center gap-3">
-        <img
-          src="/images/logo-markaz-turats.jpg"
-          alt="Logo Markaz Turats"
-          className="h-10 w-auto shrink-0 rounded-sm"
-        />
+        <span className="h-10 w-10 shrink-0 rounded-lg bg-yellow-600 text-white flex items-center justify-center font-black text-lg">
+          T
+        </span>
         <div className="min-w-0">
           <div className="font-bold text-sm tracking-tight text-zinc-900 truncate">
-            Olimpiade Turats
+            E-learning Markaz Arabiyah
           </div>
-          <div className="text-xs text-yellow-700">Panel Admin &amp; Panitia</div>
+          <div className="text-xs text-yellow-700">TOAFL • Panel Admin</div>
         </div>
       </div>
 
@@ -163,16 +165,14 @@ export default function AdminLayout({
               <Menu className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-2.5 min-w-0">
-              <img
-                src="/images/logo-markaz-turats.jpg"
-                alt="Logo Markaz Turats"
-                className="h-8 w-auto shrink-0 rounded-sm"
-              />
+              <span className="h-8 w-8 shrink-0 rounded-lg bg-yellow-600 text-white flex items-center justify-center font-black">
+                T
+              </span>
               <div className="leading-tight min-w-0">
                 <div className="font-bold text-sm truncate">
-                  Olimpiade Turats
+                  E-learning Markaz Arabiyah
                 </div>
-                <div className="text-xs text-yellow-700">Panel Admin</div>
+                <div className="text-xs text-yellow-700">TOAFL • Panel Admin</div>
               </div>
             </div>
           </div>
