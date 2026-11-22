@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { promises as fs } from "fs";
 import path from "path";
-import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { getClientIp } from "@/lib/rateLimit";
 import {
@@ -11,18 +9,29 @@ import {
   isPendaftaranRateLimited,
   recordPendaftaranAttempt,
 } from "@/lib/pendaftaran";
+import {
+  uploadPaymentProof,
+  deletePaymentProof,
+} from "@/lib/cloudinary";
 
 // TOAFL Fase 3 — pendaftaran Champion: berbayar, bukti bayar wajib,
 // status awal PENDING sampai admin memverifikasi di meja verifikasi.
 //
-// KEAMANAN BUKTI BAYAR: berisi data sensitif (nama, rekening, nominal) —
-// JANGAN simpan di public/. Disimpan di uploads/payment-proofs/ (di luar
-// public/, masuk .gitignore) dan hanya disajikan lewat API admin ber-guard
-// (src/app/api/admin/verifikasi/bukti/[id]/route.ts). Kolom
-// Registration.paymentProofUrl menyimpan NAMA FILE acak saja, bukan URL
-// publik — jangan pernah membukanya langsung dari halaman mana pun.
+// REVISI ARAH (user, 22 Nov): bukti bayar TIDAK disimpan lokal di VPS —
+// diunggah ke Cloudinary (folder e-learning/payment-proofs, cloud milik
+// user). `Registration.paymentProofUrl` menyimpan secure_url hasil upload.
+// URL Cloudinary hanya bisa dibuka bila tahu alamat lengkapnya (public_id
+// acak); tautan pratinjau di meja verifikasi tetap lewat API admin
+// ber-guard (src/app/api/admin/verifikasi/bukti/[id]/route.ts).
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf"]);
+const MIME_BY_EXT: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".pdf": "application/pdf",
+};
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
@@ -37,7 +46,7 @@ export async function POST(req: Request) {
   }
   recordPendaftaranAttempt(ip);
 
-  let savedFilename: string | null = null;
+  let uploaded: { publicId: string; resourceType: string } | null = null;
 
   try {
     const form = await req.formData();
@@ -126,13 +135,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // Simpan file dulu (nama acak), baru tulis DB. Bila DB gagal, file
-    // dihapus lagi supaya tidak ada bukti yatim tanpa pendaftaran.
-    const dir = path.join(process.cwd(), "uploads", "payment-proofs");
-    await fs.mkdir(dir, { recursive: true });
-    savedFilename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`;
+    // Unggah bukti ke Cloudinary dulu, baru tulis DB. Bila DB gagal,
+    // aset yang sudah terunggah dihapus lagi supaya tidak ada bukti yatim.
     const buffer = Buffer.from(await file.arrayBuffer());
-    await fs.writeFile(path.join(dir, savedFilename), buffer);
+    const upload = await uploadPaymentProof(
+      buffer,
+      file.name || `bukti${ext}`,
+      MIME_BY_EXT[ext] || "application/octet-stream"
+    );
+    uploaded = { publicId: upload.publicId, resourceType: upload.resourceType };
 
     const passwordHash = await hashPassword(input.password);
 
@@ -156,7 +167,7 @@ export async function POST(req: Request) {
           mode: "CHAMPION",
           levelId: level.id,
           status: "PENDING",
-          paymentProofUrl: savedFilename,
+          paymentProofUrl: upload.secureUrl,
         },
       });
       return { user };
@@ -168,13 +179,11 @@ export async function POST(req: Request) {
       username: user.username,
     });
   } catch (error: unknown) {
-    // Bila DB gagal sesudah file tersimpan, bersihkan file-nya.
-    if (savedFilename) {
-      await fs
-        .unlink(
-          path.join(process.cwd(), "uploads", "payment-proofs", savedFilename)
-        )
-        .catch(() => {});
+    // Bila DB gagal sesudah upload, bersihkan aset di Cloudinary.
+    if (uploaded) {
+      await deletePaymentProof(uploaded.publicId, uploaded.resourceType).catch(
+        () => {}
+      );
     }
     // Balapan dua pendaftaran bersamaan: tangkap konflik unik Prisma
     // dan ubah jadi pesan yang bisa dipahami pendaftar.
@@ -190,6 +199,15 @@ export async function POST(req: Request) {
             "Username, email, atau nomor WA sudah terdaftar. Silakan login atau pakai data lain.",
         },
         { status: 400 }
+      );
+    }
+    // Gagal upload Cloudinary (termasuk env belum diset) juga sampai
+    // sini sebagai Error biasa — pesannya sudah ramah pendaftar.
+    if (error instanceof Error) {
+      console.error("Pendaftaran champion error:", error.message);
+      return NextResponse.json(
+        { error: "Gagal mendaftar, silakan coba lagi" },
+        { status: 500 }
       );
     }
     console.error("Pendaftaran champion error:", error);

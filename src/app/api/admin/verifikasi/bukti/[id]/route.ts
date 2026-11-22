@@ -1,22 +1,13 @@
 import { NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 
-// TOAFL Fase 3 — menyajikan bukti bayar HANYA untuk admin yang login.
-// Bukti disimpan di uploads/payment-proofs/ (di luar public/) sehingga
-// tidak bisa dibuka lewat URL langsung; route ini satu-satunya jalan masuk,
-// dijaga cookie sesi ADMIN. Content-Disposition inline supaya gambar/PDF
-// tampil sebagai pratinjau di tab baru, bukan terunduh paksa.
-const MIME: Record<string, string> = {
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".pdf": "application/pdf",
-};
-
+// TOAFL Fase 3 (revisi arah: Cloudinary) — menyajikan bukti bayar HANYA
+// untuk admin yang login. Bukti disimpan di Cloudinary (folder
+// e-learning/payment-proofs, public_id acak); route ini memverifikasi
+// sesi ADMIN lalu mengarahkan (redirect) ke secure_url Cloudinary.
+// Tanpa login admin, route ini menolak (403) — URL Cloudinary tidak
+// pernah ditulis langsung di halaman mana pun.
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -38,47 +29,16 @@ export async function GET(
     );
   }
 
-  // paymentProofUrl hanya berisi nama file acak (tanpa path). Tolak bila
-  // ada pemisah direktori supaya tidak bisa dipakai path traversal.
-  const filename = registration.paymentProofUrl;
-  if (
-    filename.includes("/") ||
-    filename.includes("\\") ||
-    filename.includes("..")
-  ) {
-    return NextResponse.json(
-      { error: "Bukti tidak ditemukan" },
-      { status: 404 }
-    );
-  }
-  const ext = path.extname(filename).toLowerCase();
-  const mime = MIME[ext];
-  if (!mime) {
+  const url = registration.paymentProofUrl;
+  // Hanya URL Cloudinary yang dilayani. Format lama (nama file lokal)
+  // sudah tidak dipakai lagi sejak revisi arah 22 Nov — tidak ada data
+  // produksi yang memakainya.
+  if (!url.startsWith("https://res.cloudinary.com/")) {
     return NextResponse.json(
       { error: "Bukti tidak ditemukan" },
       { status: 404 }
     );
   }
 
-  const filePath = path.join(
-    process.cwd(),
-    "uploads",
-    "payment-proofs",
-    filename
-  );
-  try {
-    const buffer = await fs.readFile(filePath);
-    return new NextResponse(buffer, {
-      headers: {
-        "Content-Type": mime,
-        "Content-Disposition": "inline",
-        "Cache-Control": "private, no-store",
-      },
-    });
-  } catch {
-    return NextResponse.json(
-      { error: "Bukti tidak ditemukan" },
-      { status: 404 }
-    );
-  }
+  return NextResponse.redirect(url);
 }
