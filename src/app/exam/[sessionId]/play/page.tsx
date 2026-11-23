@@ -193,6 +193,9 @@ export default function ExamPlayPage({
   const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushingRef = useRef(false);
   const audioElsRef = useRef<Record<string, HTMLAudioElement>>({});
+  // Section yang terakhir dimuat — supaya sinkronisasi berkala tidak
+  // me-reset nomor soal bila maharohnya masih sama (bug 23 Nov 2026).
+  const loadedSectionIdRef = useRef<string | null>(null);
 
   const loadState = useCallback(
     async (silent: boolean) => {
@@ -224,6 +227,8 @@ export default function ExamPlayPage({
 
         if (data.attempt.status === "IN_PROGRESS" && data.currentSection) {
           const cs = data.currentSection;
+          const isNewSection = loadedSectionIdRef.current !== cs.id;
+          loadedSectionIdRef.current = cs.id;
           setCurrentSectionId(cs.id);
           setCurrentMaharohName(cs.maharohName);
           setQuestions(cs.questions || []);
@@ -232,8 +237,18 @@ export default function ExamPlayPage({
           setRemainingSeconds(
             Math.max(0, Math.floor((expiry - serverNow) / 1000))
           );
-          setCurrentIdx(0);
+          if (isNewSection) {
+            // Baru masuk maharoh (atau pindah maharoh): mulai dari soal 1.
+            setCurrentIdx(0);
+          } else {
+            // Sinkronisasi berkala di maharoh yang sama: pertahankan
+            // posisi soal, jepit saja bila jumlah soal menyusut.
+            setCurrentIdx((prev) =>
+              Math.min(prev, Math.max(0, (cs.questions || []).length - 1))
+            );
+          }
         } else {
+          loadedSectionIdRef.current = null;
           setCurrentSectionId(null);
           setQuestions([]);
           setRemainingSeconds(null);
