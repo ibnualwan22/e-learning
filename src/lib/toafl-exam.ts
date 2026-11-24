@@ -80,10 +80,11 @@ export interface ExamMaharohConfig {
   orderIndex: number;
 }
 
-// Pilih soal acak dari bank level itu sebanyak questionCount (bila bank
-// berisi lebih sedikit, pakai yang ada), acak urutan opsi per soal, lalu
-// bekukan menjadi snapshot. Opsi audio ikut menempel ke opsi yang benar
-// karena pengacakan membawa seluruh objek opsi.
+// Pilih soal dari bank level itu sebanyak questionCount (bila bank
+// berisi lebih sedikit, pakai yang ada), URUT sesuai bank — soal TIDAK
+// diacak (keputusan user 24 Nov 2026). Urutan opsi per soal tetap diacak,
+// lalu dibekukan menjadi snapshot. Opsi audio ikut menempel ke opsi yang
+// benar karena pengacakan membawa seluruh objek opsi.
 export async function buildSectionSnapshot(
   levelId: string,
   maharohName: string,
@@ -92,9 +93,10 @@ export async function buildSectionSnapshot(
   const bank = await prisma.question.findMany({
     where: { levelId, maharohId: em.maharohId },
     include: { options: { orderBy: { label: "asc" } } },
+    orderBy: { createdAt: "asc" },
   });
 
-  const picked = shuffleArray(bank).slice(0, em.questionCount);
+  const picked = bank.slice(0, em.questionCount);
   const questions: SnapshotQuestion[] = picked.map((q) => ({
     id: q.id,
     content: q.content,

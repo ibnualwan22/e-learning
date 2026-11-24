@@ -865,10 +865,12 @@ export default function ExamPlayPage({
               ))}
             </div>
 
-            <p className="text-xs text-zinc-500 text-center">
-              Pembahasan soal (kunci + penjelasan) akan tampil di sini pada
-              tahap berikutnya.
-            </p>
+            <button
+              onClick={() => router.push(`/hasil/${attempt.id}`)}
+              className="w-full py-3.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-zinc-950 font-semibold text-sm flex items-center justify-center gap-2 transition cursor-pointer"
+            >
+              <span>Lihat Hasil &amp; Pembahasan</span>
+            </button>
 
             <button
               onClick={() => router.push("/exam")}

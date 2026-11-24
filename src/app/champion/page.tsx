@@ -187,6 +187,16 @@ export default function ChampionPage() {
           </li>
         </ul>
 
+        <div className="mt-6">
+          <Link
+            href="/leaderboard/champion"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition"
+          >
+            <Trophy className="w-4 h-4" />
+            Lihat Leaderboard Champion
+          </Link>
+        </div>
+
         {myExams.length > 0 && (
           <div className="mt-8 space-y-3">
             <h2 className="text-lg font-bold">Ujian Champion Saya</h2>

@@ -70,6 +70,7 @@ export async function PUT(
       startTime,
       endTime,
       autoSubmitOnViolation,
+      certificateReleased,
       maharohs,
     } = body;
 
@@ -215,6 +216,9 @@ export async function PUT(
               }),
           ...(autoSubmitOnViolation !== undefined
             ? { autoSubmitOnViolation: Boolean(autoSubmitOnViolation) }
+            : {}),
+          ...(certificateReleased !== undefined
+            ? { certificateReleased: Boolean(certificateReleased) }
             : {}),
           ...(maharohsCreate !== undefined
             ? { maharohs: { create: maharohsCreate } }

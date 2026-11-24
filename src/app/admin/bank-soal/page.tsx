@@ -6,10 +6,13 @@ import {
   Plus,
   Pencil,
   Trash2,
+  CheckCircle2,
+  Search,
   X,
   Volume2,
   Upload,
 } from "lucide-react";
+import { renderRichText } from "@/lib/safeHtml";
 import { getTextDirection } from "@/lib/text-direction";
 
 interface OptionRecord {
@@ -56,6 +59,21 @@ interface OptionForm {
   audioUrl: string;
 }
 
+interface ImportPreviewRow {
+  index: number;
+  level: string;
+  levelId: string | null;
+  maharoh: string;
+  maharohId: string | null;
+  weight: number;
+  contentHtml: string;
+  options: { label: string; html: string; plain: string }[];
+  keyLetter: string;
+  explanationHtml: string;
+  status: string;
+  errors: string[];
+}
+
 const EMPTY_OPTIONS: OptionForm[] = [
   { label: "A", content: "", isCorrect: true, contentType: "TEXT", audioUrl: "" },
   { label: "B", content: "", isCorrect: false, contentType: "TEXT", audioUrl: "" },
@@ -84,6 +102,7 @@ export default function AdminBankSoalPage() {
   const [maharohs, setMaharohs] = useState<MaharohOption[]>([]);
   const [filterLevel, setFilterLevel] = useState("");
   const [filterMaharoh, setFilterMaharoh] = useState("");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -99,13 +118,19 @@ export default function AdminBankSoalPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
 
+  // Impor Excel
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [previewRows, setPreviewRows] = useState<ImportPreviewRow[] | null>(
+    null
+  );
+  const [previewError, setPreviewError] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState("");
+
   async function loadData() {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filterLevel) params.set("levelId", filterLevel);
-      if (filterMaharoh) params.set("maharohId", filterMaharoh);
-      const res = await fetch(`/api/admin/bank-soal?${params.toString()}`);
+      const res = await fetch("/api/admin/bank-soal");
       if (res.status === 403 || res.status === 401) {
         router.push("/login");
         return;
@@ -122,7 +147,7 @@ export default function AdminBankSoalPage() {
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterLevel, filterMaharoh]);
+  }, []);
 
   function openCreateModal() {
     setEditingId(null);
@@ -292,35 +317,116 @@ export default function AdminBankSoalPage() {
     await loadData();
   }
 
+  async function handlePreviewUpload() {
+    if (!importFile) return;
+    setImporting(true);
+    setPreviewError("");
+    setImportResult("");
+    try {
+      const form = new FormData();
+      form.append("file", importFile);
+      const res = await fetch("/api/admin/bank-soal/import", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPreviewError(data.error || "Gagal membaca file Excel");
+        setPreviewRows(null);
+        return;
+      }
+      setPreviewRows(data.rows || []);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!previewRows) return;
+    setImporting(true);
+    try {
+      const res = await fetch("/api/admin/bank-soal/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: previewRows }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Gagal mengimpor soal");
+        return;
+      }
+      const skippedText =
+        data.skipped?.length > 0
+          ? `, dilewati ${data.skipped.length}`
+          : "";
+      setImportResult(
+        `Impor selesai: ${data.created} soal dibuat${skippedText}.`
+      );
+      setPreviewRows(null);
+      setImportFile(null);
+      await loadData();
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const filteredQuestions = questions.filter((q) => {
+    const matchLevel = !filterLevel || q.levelId === filterLevel;
+    const matchMaharoh = !filterMaharoh || q.maharohId === filterMaharoh;
+    const matchSearch =
+      !search.trim() ||
+      q.content.toLowerCase().includes(search.toLowerCase()) ||
+      q.level?.name.toLowerCase().includes(search.toLowerCase()) ||
+      q.maharoh?.name.toLowerCase().includes(search.toLowerCase());
+    return matchLevel && matchMaharoh && matchSearch;
+  });
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-zinc-900">
+          <h1 className="text-2xl font-extrabold text-zinc-900">
             Bank Soal TOAFL
           </h1>
-          <p className="text-sm text-zinc-500 mt-1">
-            Soal pilihan ganda per level &times; maharoh. Opsi bisa teks atau
-            audio; soal audio (Istima') diunggah sebagai file.
+          <p className="text-sm text-zinc-500 mt-0.5">
+            Kelola soal pilihan ganda per level &times; maharoh beserta opsi
+            dan bobot nilainya. Opsi bisa teks atau audio; soal audio
+            (Istima') diunggah sebagai file. Arah tulisan (RTL/LTR)
+            menyesuaikan isi teks secara otomatis — sama seperti yang dilihat
+            peserta di halaman ujian.
           </p>
         </div>
-        <button
-          onClick={openCreateModal}
-          className="px-4 py-2.5 rounded-xl bg-yellow-600 hover:bg-yellow-500 text-white text-sm font-bold flex items-center gap-2 transition cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          Tambah Soal
-        </button>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={openCreateModal}
+            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Soal Baru</span>
+          </button>
+        </div>
       </div>
 
-      {/* Filter */}
-      <div className="flex flex-wrap gap-3">
+      {/* Filter Bar */}
+      <div className="bg-white rounded-xl border border-zinc-200 p-4 flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari teks soal, level, atau maharoh..."
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-zinc-200 text-sm outline-none focus:border-yellow-500"
+          />
+        </div>
         <select
           value={filterLevel}
           onChange={(e) => setFilterLevel(e.target.value)}
-          className="px-3 py-2.5 rounded-xl border border-zinc-300 text-sm text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
+          className="px-4 py-2 rounded-xl border border-zinc-200 text-sm bg-white outline-none focus:border-yellow-500"
         >
-          <option value="">Semua Level</option>
+          <option value="">Semua Level ({questions.length})</option>
           {levels.map((l) => (
             <option key={l.id} value={l.id}>
               {l.name}
@@ -330,7 +436,7 @@ export default function AdminBankSoalPage() {
         <select
           value={filterMaharoh}
           onChange={(e) => setFilterMaharoh(e.target.value)}
-          className="px-3 py-2.5 rounded-xl border border-zinc-300 text-sm text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
+          className="px-4 py-2 rounded-xl border border-zinc-200 text-sm bg-white outline-none focus:border-yellow-500"
         >
           <option value="">Semua Maharoh</option>
           {maharohs.map((m) => (
@@ -341,96 +447,228 @@ export default function AdminBankSoalPage() {
         </select>
       </div>
 
+      {/* Impor Soal dari Excel */}
+      <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-4 shadow-xs">
+        <div>
+          <h2 className="text-sm font-extrabold text-zinc-900">
+            Impor Soal dari Excel
+          </h2>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Kolom: Level | Maharoh | Bobot | Soal | Opsi A | Opsi B | Opsi
+            C | Opsi D | Kunci | Pembahasan. Level dan Maharoh harus sama
+            persis dengan nama di menu Level TOAFL dan Maharoh. Format
+            tebal, garis bawah, dan miring pada sel ikut terimpor; karakter
+            liar dibersihkan otomatis dan harakat dipertahankan. Audio soal
+            tidak bisa diimpor — tambahkan lewat Tambah/Edit Soal.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <a
+            href="/api/admin/bank-soal/import-template"
+            className="px-4 py-2 rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-xs font-semibold text-center cursor-pointer"
+          >
+            Unduh Template Excel
+          </a>
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => {
+              setImportFile(e.target.files?.[0] || null);
+              setPreviewRows(null);
+              setPreviewError("");
+            }}
+            className="flex-1 px-3 py-2 rounded-xl border border-zinc-200 text-xs"
+          />
+          <button
+            onClick={handlePreviewUpload}
+            disabled={!importFile || importing}
+            className="px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+          >
+            {importing ? "Memproses..." : "Pratinjau Impor"}
+          </button>
+        </div>
+
+        {previewError && (
+          <p className="text-xs font-bold text-red-600">{previewError}</p>
+        )}
+        {importResult && (
+          <p className="text-xs font-bold text-emerald-700">{importResult}</p>
+        )}
+
+        {previewRows && (
+          <div className="space-y-3">
+            <div className="overflow-x-auto border border-zinc-200 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-zinc-50 border-b border-zinc-200 font-bold text-zinc-500">
+                    <th className="p-2.5">Baris</th>
+                    <th className="p-2.5">Soal</th>
+                    <th className="p-2.5">Level</th>
+                    <th className="p-2.5">Maharoh</th>
+                    <th className="p-2.5">Bobot</th>
+                    <th className="p-2.5">Kunci</th>
+                    <th className="p-2.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {previewRows.map((r, i) => (
+                    <tr key={i}>
+                      <td className="p-2.5">{r.index}</td>
+                      <td className="p-2.5 max-w-100" dir={getTextDirection(r.contentHtml) === "RTL" ? "rtl" : "ltr"}>
+                        {renderRichText(r.contentHtml)}
+                      </td>
+                      <td className="p-2.5">{r.level || "-"}</td>
+                      <td className="p-2.5">{r.maharoh || "-"}</td>
+                      <td className="p-2.5">{r.weight}</td>
+                      <td className="p-2.5">{r.keyLetter}</td>
+                      <td className="p-2.5">
+                        {r.status === "valid" ? (
+                          "Valid"
+                        ) : (
+                          <span className="text-red-600 font-bold">
+                            {r.errors.join("; ")}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPreviewRows(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-100 text-zinc-700 text-xs font-semibold cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleConfirmImport}
+                disabled={importing}
+                className="px-5 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+              >
+                {importing ? "Mengimpor..." : "Konfirmasi & Buat Soal"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Daftar Soal */}
       {loading ? (
-        <div className="bg-white rounded-xl border border-zinc-200 p-8 text-center text-sm text-zinc-500">
+        <div className="p-12 text-center text-sm text-zinc-500">
           Memuat bank soal...
         </div>
-      ) : questions.length === 0 ? (
-        <div className="bg-white rounded-xl border border-zinc-200 p-8 text-center text-sm text-zinc-500">
-          Belum ada soal untuk filter ini. Tambahkan soal pertama.
+      ) : filteredQuestions.length === 0 ? (
+        <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center text-sm text-zinc-500">
+          Belum ada soal pada filter ini. Klik &ldquo;Tambah Soal Baru&rdquo;
+          atau impor dari Excel untuk membuat soal.
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-x-auto">
-          <table className="w-full text-sm min-w-[720px]">
-            <thead>
-              <tr className="border-b border-zinc-200 text-left text-zinc-500">
-                <th className="px-4 py-3 font-semibold">Soal</th>
-                <th className="px-4 py-3 font-semibold">Level</th>
-                <th className="px-4 py-3 font-semibold">Maharoh</th>
-                <th className="px-4 py-3 font-semibold text-center">Bobot</th>
-                <th className="px-4 py-3 font-semibold text-center">Opsi</th>
-                <th className="px-4 py-3 font-semibold text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {questions.map((q) => {
-                const correct = q.options.find((o) => o.isCorrect);
-                return (
-                  <tr
-                    key={q.id}
-                    className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 align-top"
+        <div className="space-y-4">
+          {filteredQuestions.map((q, idx) => (
+            <div
+              key={q.id}
+              className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6 shadow-xs space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-lg bg-zinc-900 text-white font-bold text-xs">
+                    #{idx + 1}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-yellow-50 border border-yellow-200 text-zinc-800 font-semibold text-xs">
+                    {q.level?.name || "Tanpa Level"}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-yellow-50 border border-yellow-200 text-zinc-800 font-semibold text-xs">
+                    {q.maharoh?.name || "Tanpa Maharoh"}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900 font-bold text-xs">
+                    Bobot: {q.weight} Poin
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-xs font-mono">
+                    {getTextDirection(q.content)}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openEditModal(q)}
+                    className="px-3 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-xs font-semibold flex items-center gap-1 cursor-pointer"
                   >
-                    <td className="px-4 py-3 text-zinc-900 max-w-md">
-                      <div
-                        dir={getTextDirection(q.content)}
-                        className="line-clamp-2"
-                      >
-                        {q.content}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 mt-1.5">
-                        {q.audioUrl && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-                            <Volume2 className="w-3 h-3" /> Audio soal
-                          </span>
-                        )}
-                        {q.options.some((o) => o.contentType === "AUDIO") && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-800">
-                            <Volume2 className="w-3 h-3" /> Opsi audio
-                          </span>
-                        )}
-                        {q.explanation && (
-                          <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-bold bg-zinc-100 text-zinc-600">
-                            Ada pembahasan
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-zinc-600 whitespace-nowrap">
-                      {q.level?.name || "-"}
-                    </td>
-                    <td className="px-4 py-3 text-zinc-600 whitespace-nowrap">
-                      {q.maharoh?.name || "-"}
-                    </td>
-                    <td className="px-4 py-3 text-center text-zinc-600">
-                      {q.weight}
-                    </td>
-                    <td className="px-4 py-3 text-center text-zinc-600 whitespace-nowrap">
-                      {q.options.length} opsi
-                      {correct ? ` • Kunci ${correct.label}` : ""}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => openEditModal(q)}
-                          aria-label="Ubah soal"
-                          className="p-2 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition cursor-pointer"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(q)}
-                          aria-label="Hapus soal"
-                          className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(q)}
+                    className="px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Hapus
+                  </button>
+                </div>
+              </div>
+
+              <div
+                dir={getTextDirection(q.content) === "RTL" ? "rtl" : "ltr"}
+                className={`p-4 rounded-xl bg-yellow-50/40 border border-yellow-200/60 text-zinc-900 whitespace-pre-line ${getTextDirection(q.content) === "RTL"
+                  ? "font-arabic text-2xl text-right"
+                  : "text-sm sm:text-base"
+                  }`}
+              >
+                {renderRichText(q.content)}
+              </div>
+
+              {q.audioUrl && (
+                <div className="flex items-center gap-2 text-xs text-zinc-600">
+                  <Volume2 className="w-4 h-4" />
+                  <audio controls src={q.audioUrl} className="h-9 flex-1" />
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {q.options.map((opt) => (
+                  <div
+                    key={opt.id}
+                    className={`p-3 rounded-xl border flex items-center gap-3 ${opt.isCorrect
+                      ? "bg-yellow-50 border-yellow-400 text-zinc-900"
+                      : "bg-zinc-50/70 border-zinc-200 text-zinc-700"
+                      }`}
+                  >
+                    <span
+                      className={`w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 ${opt.isCorrect
+                        ? "bg-zinc-900 text-white"
+                        : "bg-zinc-200 text-zinc-700"
+                        }`}
+                    >
+                      {opt.label}
+                    </span>
+                    <span
+                      dir={getTextDirection(opt.content) === "RTL" ? "rtl" : "ltr"}
+                      className={`flex-1 ${getTextDirection(opt.content) === "RTL"
+                        ? "font-arabic text-xl text-right"
+                        : "text-xs sm:text-sm"
+                        }`}
+                    >
+                      {opt.contentType === "AUDIO" && opt.audioUrl ? (
+                        <audio controls src={opt.audioUrl} className="h-8 w-full" />
+                      ) : (
+                        renderRichText(opt.content)
+                      )}
+                    </span>
+                    {opt.isCorrect && (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {q.explanation && (
+                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-600">
+                  <span className="font-bold text-zinc-800">Pembahasan: </span>
+                  {renderRichText(q.explanation)}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

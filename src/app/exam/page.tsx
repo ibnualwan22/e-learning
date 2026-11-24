@@ -333,7 +333,7 @@ export default function ParticipantDashboardPage() {
                         onClick={() =>
                           exam.mode === "SIMULASI"
                             ? router.push(`/exam/${exam.id}/rules`)
-                            : router.push(`/exam/${exam.attempt?.id}/play`)
+                            : router.push(`/hasil/${exam.attempt?.id}`)
                         }
                         className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                       >
@@ -416,7 +416,11 @@ export default function ParticipantDashboardPage() {
                   </div>
                   <div>
                     <button
-                      onClick={() => router.push(`/exam/${att.id}/play`)}
+                      onClick={() =>
+                        att.status === "IN_PROGRESS"
+                          ? router.push(`/exam/${att.id}/play`)
+                          : router.push(`/hasil/${att.id}`)
+                      }
                       className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                     >
                       {att.status === "IN_PROGRESS" ? (

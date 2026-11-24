@@ -250,6 +250,10 @@ model Exam {
   startTime             DateTime?
   endTime               DateTime?
   autoSubmitOnViolation Boolean       @default(true)
+  // Pengumuman resmi champion (Fase 6): bila true, peserta champion bisa
+  // melihat leaderboard publik + mengunduh sertifikat. Diatur admin dari
+  // halaman Exam.
+  certificateReleased Boolean       @default(false)
   maharohs              ExamMaharoh[]
   attempts              Attempt[]
   createdAt             DateTime      @default(now())

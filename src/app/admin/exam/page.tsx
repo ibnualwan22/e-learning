@@ -24,6 +24,7 @@ interface ExamRecord {
   startTime: string | null;
   endTime: string | null;
   autoSubmitOnViolation: boolean;
+  certificateReleased: boolean;
   level: { id: string; name: string } | null;
   maharohs: ExamMaharohRecord[];
 }
@@ -82,6 +83,7 @@ export default function AdminExamsPage() {
   const [levelId, setLevelId] = useState("");
   const [isActive, setIsActive] = useState(false);
   const [autoSubmit, setAutoSubmit] = useState(true);
+  const [certReleased, setCertReleased] = useState(false);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [rows, setRows] = useState<MaharohRow[]>([]);
@@ -142,6 +144,7 @@ export default function AdminExamsPage() {
     setLevelId(levels[0]?.id || "");
     setIsActive(false);
     setAutoSubmit(true);
+    setCertReleased(false);
     setStartTime("");
     setEndTime("");
     setRows([]);
@@ -157,6 +160,7 @@ export default function AdminExamsPage() {
     setLevelId(exam.levelId);
     setIsActive(exam.isActive);
     setAutoSubmit(exam.autoSubmitOnViolation);
+    setCertReleased(exam.certificateReleased ?? false);
     setStartTime(toLocalInput(exam.startTime));
     setEndTime(toLocalInput(exam.endTime));
     setRows(
@@ -260,6 +264,7 @@ export default function AdminExamsPage() {
             levelId,
             isActive,
             autoSubmitOnViolation: autoSubmit,
+            certificateReleased: certReleased,
             startTime: mode === "CHAMPION" ? startTime || null : null,
             endTime: mode === "CHAMPION" ? endTime || null : null,
             maharohs: rows.map((r, idx) => ({
@@ -558,6 +563,17 @@ export default function AdminExamsPage() {
                   Auto-submit saat pelanggaran (default: Simulasi ya, Champion
                   tidak)
                 </label>
+                {mode === "CHAMPION" && (
+                  <label className="flex items-center gap-2 text-sm text-zinc-900 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={certReleased}
+                      onChange={(e) => setCertReleased(e.target.checked)}
+                      className="w-4 h-4 accent-yellow-600"
+                    />
+                    Umumkan hasil &amp; buka sertifikat (pengumuman resmi)
+                  </label>
+                )}
               </div>
 
               <div>
