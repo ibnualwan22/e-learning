@@ -55,17 +55,9 @@ export async function PUT(
 
     // Opsi kosong dibuang, bukan ditolak — soal boleh punya 2, 3, atau 4
     // opsi. Label diurutkan ulang (A, B, C...) supaya tidak ada lompatan.
-    const cleanOptions = (Array.isArray(options) ? options : [])
-      .filter(
-        (opt: { content?: string; audioUrl?: string }) =>
-          opt.content?.trim() || opt.audioUrl?.trim()
-      )
-      .map(
-        (
-          opt: { content?: string; audioUrl?: string; [k: string]: unknown },
-          idx: number
-        ) => ({ ...opt, label: String.fromCharCode(65 + idx) })
-      );
+    const cleanOptions = (Array.isArray(options) ? (options as OptionInput[]) : [])
+      .filter((opt) => opt.content?.trim() || opt.audioUrl?.trim())
+      .map((opt, idx) => ({ ...opt, label: String.fromCharCode(65 + idx) }));
 
     if (cleanOptions.length < 2) {
       return NextResponse.json(
