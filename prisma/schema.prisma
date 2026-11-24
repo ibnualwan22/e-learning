@@ -153,11 +153,19 @@ model ViolationEvent {
   id        String        @id @default(cuid())
   attemptId String
   attempt   Attempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  // Maharoh yang sedang berjalan saat pelanggaran dilaporkan. Dipakai
+  // dedup per maharoh (perbaikan bug 24 Nov 2026): satu pindah tab
+  // tidak boleh menutup dua maharoh, dan pindah tab di maharoh baru
+  // tidak boleh dibuang sebagai duplikat pindah tab sebelumnya.
+  // Null bila laporan tiba setelah maharohnya sudah tertutup.
+  sectionId String?
+  section   SectionAttempt? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   type      ViolationType
   at        DateTime      @default(now())
   detail    String?
 
   @@index([attemptId, at])
+  @@index([attemptId, sectionId])
 }
 
 // TOAFL Fase 4: attempt ujian TOAFL (mesin baru). Satu attempt milik satu
@@ -201,6 +209,7 @@ model SectionAttempt {
   finishedAt DateTime?
   score      Float         @default(0)
   snapshot   Json
+  violations ViolationEvent[]
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 

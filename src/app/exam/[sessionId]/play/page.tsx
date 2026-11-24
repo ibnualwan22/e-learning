@@ -226,6 +226,13 @@ export default function ExamPlayPage({
   // (sekali per jenis per maharoh). Kunci memuat sectionId supaya
   // maharoh berikut mendapat jatah laporannya sendiri.
   const violationReportedRef = useRef<Set<string>>(new Set());
+  // Waktu laporan pelanggaran terakhir (jenis apa pun). Satu kejadian
+  // fisik (pindah tab) memicu blur + visibilitychange + pagehide
+  // hampir bersamaan — hanya laporan pertama yang dikirim; sisanya
+  // dalam 2 detik diabaikan supaya satu pindah tab tidak menutup
+  // dua maharoh (bug 24 Nov 2026: BLUR dan TAB_CLOSE selisih 226 ms
+  // menutup Istima' lalu Qawa'id).
+  const lastViolationReportAtRef = useRef(0);
   // Diset saat penutupan otomatis karena waktu habis sedang berjalan —
   // supaya reload/blur di momen itu tidak ikut dilaporkan sebagai
   // pelanggaran pada maharoh berikutnya.
@@ -438,6 +445,11 @@ export default function ExamPlayPage({
       if (!attempt || attempt.status !== "IN_PROGRESS" || !currentSectionId)
         return;
       if (violationSuppressedRef.current) return;
+      // Runtuhkan gema satu kejadian: blur + visibilitychange (+ pagehide)
+      // untuk satu pindah tab tiba berurutan — hanya yang pertama dikirim.
+      const now = Date.now();
+      if (now - lastViolationReportAtRef.current < 2000) return;
+      lastViolationReportAtRef.current = now;
       const key = `${currentSectionId}:${type}`;
       if (violationReportedRef.current.has(key)) return;
       violationReportedRef.current.add(key);

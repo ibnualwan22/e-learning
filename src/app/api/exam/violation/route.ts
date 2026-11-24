@@ -12,20 +12,22 @@ import {
 // Body dibaca sebagai teks lalu JSON.parse supaya pengiriman
 // navigator.sendBeacon (pagehide/tab ditutup) tetap terbaca.
 //
-// Perilaku: pelanggaran SELALU dicatat di ViolationEvent. Bila exam
+// Perilaku: pelanggaran dicatat di ViolationEvent. Bila exam
 // autoSubmitOnViolation (SIMULASI) → maharoh yang sedang berjalan
 // di-submit otomatis dan peserta lanjut ke maharoh berikut. Bila false
 // (CHAMPION) → hanya dicatat, section tetap berjalan.
 //
-// Idempotensi: laporan jenis yang sama untuk attempt yang sama dalam
-// 10 detik terakhir diabaikan (beberapa event browser — visibilitychange
-// + blur + pagehide — sering menyala bersamaan untuk satu kejadian).
+// Idempotensi PER MAHAROH (perbaikan bug 24 Nov 2026): satu pindah tab
+// memicu beberapa event browser (blur + visibilitychange + pagehide)
+// hampir bersamaan — laporan kedua untuk maharoh yang sama diabaikan
+// supaya satu pindah tab tidak menutup dua maharoh. Sebaliknya, pindah
+// tab di maharoh BERIKUTNYA selalu ditindak: dedup lama (jenis yang
+// sama dalam 10 detik, tanpa membedakan maharoh) membuang laporan
+// kedua yang sah bila datang <10 detik setelah yang pertama.
 // finalizeSection sendiri juga idempotent (section yang sudah bukan
 // IN_PROGRESS tidak disentuh lagi).
 const VALID_TYPES = ["TAB_CLOSE", "FLOATING_APP", "BLUR"] as const;
 type ViolationType = (typeof VALID_TYPES)[number];
-
-const DEDUP_WINDOW_MS = 10_000;
 
 async function readBody(req: Request): Promise<Record<string, unknown>> {
   try {
@@ -72,44 +74,45 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, ignored: true });
     }
 
-    // Laporan ganda dalam jendela singkat = satu kejadian yang sama.
-    const recent = await prisma.violationEvent.findFirst({
-      where: {
-        attemptId,
-        type: type as ViolationType,
-        at: { gte: new Date(Date.now() - DEDUP_WINDOW_MS) },
-      },
-      orderBy: { at: "desc" },
-    });
-    if (recent) {
-      const state = await buildAttemptState(attempt.id);
-      return NextResponse.json({ ok: true, duplicate: true, state });
+    // Section yang jadi sasaran adalah yang sedang berjalan SAAT
+    // laporan masuk — bukan section sesudah auto-expire memajukan
+    // attempt (agar pelanggaran di ujung waktu tidak menutup
+    // maharoh baru yang baru saja dimulai).
+    const target = attempt.sections.find(
+      (s) =>
+        s.maharohId === attempt.currentMaharohId &&
+        s.status === "IN_PROGRESS"
+    );
+
+    // Satu kejadian fisik = satu laporan per maharoh. Bila maharoh ini
+    // sudah punya pelanggaran tercatat (jenis apa pun), laporan ini
+    // adalah gema dari kejadian yang sama (blur + visibilitychange) —
+    // abaikan tanpa menutup apa pun.
+    if (target) {
+      const existing = await prisma.violationEvent.findFirst({
+        where: { attemptId, sectionId: target.id },
+        orderBy: { at: "desc" },
+      });
+      if (existing) {
+        const state = await buildAttemptState(attempt.id);
+        return NextResponse.json({ ok: true, duplicate: true, state });
+      }
     }
 
     await prisma.violationEvent.create({
       data: {
         attemptId,
+        sectionId: target?.id ?? null,
         type: type as ViolationType,
         detail,
       },
     });
 
     let autoSubmitted = false;
-    if (attempt.exam.autoSubmitOnViolation) {
-      // Section yang jadi sasaran adalah yang sedang berjalan SAAT
-      // laporan masuk — bukan section sesudah auto-expire memajukan
-      // attempt (agar pelanggaran di ujung waktu tidak menutup
-      // maharoh baru yang baru saja dimulai).
-      const target = attempt.sections.find(
-        (s) =>
-          s.maharohId === attempt.currentMaharohId &&
-          s.status === "IN_PROGRESS"
-      );
-      if (target) {
-        await finalizeSection(target.id, "SUBMITTED");
-        await advanceAfterSection(attempt.id);
-        autoSubmitted = true;
-      }
+    if (attempt.exam.autoSubmitOnViolation && target) {
+      await finalizeSection(target.id, "SUBMITTED");
+      await advanceAfterSection(attempt.id);
+      autoSubmitted = true;
     }
 
     const state = await buildAttemptState(attempt.id);
