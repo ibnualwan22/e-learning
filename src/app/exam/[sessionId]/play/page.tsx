@@ -17,6 +17,9 @@ import {
   Volume2,
   Lock,
   Play,
+  Maximize,
+  LayoutGrid,
+  X,
 } from "lucide-react";
 
 interface OptionItem {
@@ -48,6 +51,7 @@ interface SectionInfo {
   finishedAt: string | null;
   score: number;
   questionCount: number;
+  maxScore: number;
 }
 
 interface MaharohInfo {
@@ -74,6 +78,16 @@ interface AnswerState {
   selectedOptionId: string | null;
   isDoubtful: boolean;
   audioPlayCount: number;
+}
+
+// Predikat hasil — tabel yang sama dengan Siakad (lib/formatters.ts
+// getPredikat): >=90 Imtiyaz, >=80 Jayyid Jiddan, >=70 Jayyid,
+// di bawah 70 Maqbul. Dihitung dari persentase skor terhadap total bobot.
+function getPredikat(persen: number) {
+  if (persen >= 90) return { indo: "Imtiyaz", arab: "الامتياز" };
+  if (persen >= 80) return { indo: "Jayyid Jiddan", arab: "جيد جدا" };
+  if (persen >= 70) return { indo: "Jayyid", arab: "جيد" };
+  return { indo: "Maqbul", arab: "مقبول" };
 }
 
 // Cadangan jawaban di perangkat peserta (pelajaran dari ujian Usbu'i Siakad:
@@ -168,6 +182,9 @@ export default function ExamPlayPage({
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState<AttemptInfo | null>(null);
   const [examTitle, setExamTitle] = useState("");
+  const [examMode, setExamMode] = useState<"SIMULASI" | "CHAMPION" | "">(
+    ""
+  );
   const [maharohs, setMaharohs] = useState<MaharohInfo[]>([]);
   const [sections, setSections] = useState<SectionInfo[]>([]);
   const [currentSectionId, setCurrentSectionId] = useState<string | null>(null);
@@ -188,6 +205,15 @@ export default function ExamPlayPage({
   const [isTimeUp, setIsTimeUp] = useState(false);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
+  // TOAFL Fase 5 — pemberitahuan penutupan otomatis karena pelanggaran.
+  const [violationNotice, setViolationNotice] = useState<string | null>(null);
+  // Layout responsif: lembar nomor soal di HP (sidebar hanya tampil di desktop).
+  const [showNumberSheet, setShowNumberSheet] = useState(false);
+  // Fullscreen ala Siakad Usbu (khusus SIMULASI): dilacak lewat event
+  // fullscreenchange; iPhone Safari tidak mendukung API ini (nilai tetap false).
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenSupported, setFullscreenSupported] = useState(false);
+  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
 
   const autoSubmitRef = useRef(false);
   const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -196,6 +222,14 @@ export default function ExamPlayPage({
   // Section yang terakhir dimuat — supaya sinkronisasi berkala tidak
   // me-reset nomor soal bila maharohnya masih sama (bug 23 Nov 2026).
   const loadedSectionIdRef = useRef<string | null>(null);
+  // Jenis pelanggaran yang sudah dilaporkan untuk section berjalan
+  // (sekali per jenis per maharoh). Kunci memuat sectionId supaya
+  // maharoh berikut mendapat jatah laporannya sendiri.
+  const violationReportedRef = useRef<Set<string>>(new Set());
+  // Diset saat penutupan otomatis karena waktu habis sedang berjalan —
+  // supaya reload/blur di momen itu tidak ikut dilaporkan sebagai
+  // pelanggaran pada maharoh berikutnya.
+  const violationSuppressedRef = useRef(false);
 
   const loadState = useCallback(
     async (silent: boolean) => {
@@ -212,6 +246,7 @@ export default function ExamPlayPage({
         const data = await res.json();
         setAttempt(data.attempt);
         setExamTitle(data.exam.title);
+        setExamMode(data.exam.mode ?? "");
         setMaharohs(data.exam.maharohs || []);
         setSections(data.sections || []);
 
@@ -307,6 +342,8 @@ export default function ExamPlayPage({
   // Reset penanda waktu habis saat attempt/section berganti.
   useEffect(() => {
     autoSubmitRef.current = false;
+    violationSuppressedRef.current = false;
+    violationReportedRef.current = new Set();
     setIsTimeUp(false);
     setSubmitError(null);
   }, [attempt?.id, currentSectionId]);
@@ -352,6 +389,9 @@ export default function ExamPlayPage({
       setIsTimeUp(true);
       if (!autoSubmitRef.current) {
         autoSubmitRef.current = true;
+        // Penutupan karena waktu habis bukan pelanggaran — jangan
+        // laporkan blur/reload di momen ini sebagai pelanggaran.
+        violationSuppressedRef.current = true;
         // Sekali saja, tanpa pengulangan otomatis.
         autoSubmitTimerRef.current = setTimeout(() => {
           void handleSubmitSection();
@@ -384,6 +424,168 @@ export default function ExamPlayPage({
     }, 30000);
     return () => clearInterval(interval);
   }, [attempt, loadState]);
+
+  // TOAFL Fase 5 — laporkan satu pelanggaran ke server. Bila exam
+  // auto-submit (SIMULASI), server menutup maharoh berjalan dan
+  // mengembalikan state baru; bila tidak (CHAMPION), pelanggaran hanya
+  // dicatat. Gagal melapor (mis. offline sesaat) tidak mengganggu peserta.
+  const reportViolation = useCallback(
+    async (
+      type: "TAB_CLOSE" | "FLOATING_APP" | "BLUR",
+      detail: string,
+      useBeacon = false
+    ) => {
+      if (!attempt || attempt.status !== "IN_PROGRESS" || !currentSectionId)
+        return;
+      if (violationSuppressedRef.current) return;
+      const key = `${currentSectionId}:${type}`;
+      if (violationReportedRef.current.has(key)) return;
+      violationReportedRef.current.add(key);
+
+      const payload = JSON.stringify({
+        attemptId: attempt.id,
+        type,
+        detail,
+      });
+
+      // Tab sedang ditutup: kirim lewat beacon (tidak menunggu respons).
+      if (
+        useBeacon &&
+        typeof navigator !== "undefined" &&
+        navigator.sendBeacon
+      ) {
+        navigator.sendBeacon(
+          "/api/exam/violation",
+          new Blob([payload], { type: "application/json" })
+        );
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/exam/violation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.autoSubmitted) {
+          setViolationNotice(
+            type === "BLUR"
+              ? `Maharoh ${currentMaharohName} ditutup otomatis karena jendela ujian kehilangan fokus — lanjut ke maharoh berikut.`
+              : `Maharoh ${currentMaharohName} ditutup otomatis karena terdeteksi pindah tab — lanjut ke maharoh berikut.`
+          );
+          await loadState(true);
+        }
+      } catch {
+        // abaikan — server tetap bisa menutup dari sinkronisasi berkala
+      }
+    },
+    [attempt, currentSectionId, currentMaharohName, loadState]
+  );
+
+  // Fullscreen ala Siakad Usbu (khusus SIMULASI). Fullscreen diminta dari
+  // klik "Mulai" di halaman Tata Tertib (harus dari gestur pengguna);
+  // di sini hanya dilacak dan ditawarkan lagi bila pengguna keluar.
+  // iPhone Safari tidak menyediakan requestFullscreen — banner di bawah
+  // tidak muncul bila API tidak tersedia.
+  const enterFullscreen = useCallback(() => {
+    const el = document.documentElement as unknown as {
+      requestFullscreen?: () => Promise<void>;
+    };
+    if (el.requestFullscreen) {
+      void el.requestFullscreen().catch(() => {
+        // Ditolak browser / tidak didukung: ujian tetap jalan,
+        // banner menawarkan masuk lagi.
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () =>
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFsChange);
+    setIsFullscreen(Boolean(document.fullscreenElement));
+    setFullscreenSupported("requestFullscreen" in document.documentElement);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  // Keluar fullscreen otomatis saat ujian selesai (hasil tampil).
+  const attemptStatus = attempt?.status;
+  useEffect(() => {
+    if (
+      attemptStatus &&
+      attemptStatus !== "IN_PROGRESS" &&
+      document.fullscreenElement &&
+      document.exitFullscreen
+    ) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  }, [attemptStatus]);
+
+  // Wake Lock ala Siakad Usbu — cegah layar tidur selama ujian.
+  useEffect(() => {
+    if (attemptStatus !== "IN_PROGRESS") return;
+    let cancelled = false;
+    const requestLock = async () => {
+      try {
+        const nav = navigator as unknown as {
+          wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> };
+        };
+        if (nav.wakeLock && !wakeLockRef.current) {
+          const lock = await nav.wakeLock.request("screen");
+          if (!cancelled) wakeLockRef.current = lock;
+          else void lock.release().catch(() => {});
+        }
+      } catch {
+        // Tidak didukung / ditolak: lanjut tanpa Wake Lock.
+      }
+    };
+    void requestLock();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void requestLock();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      if (wakeLockRef.current) {
+        void wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+    };
+  }, [attemptStatus]);
+
+  // TOAFL Fase 5 — detektor pelanggaran di klien. visibilitychange
+  // (tab disembunyikan/pindah) + blur (jendela kehilangan fokus) +
+  // pagehide (tab ditutup, lewat beacon). FLOATING_APP tidak dikirim
+  // dari klien: tidak ada API browser yang andal untuk mendeteksi
+  // aplikasi mengambang — tipe itu disediakan untuk pelaporan
+  // server/manual di masa depan. Sekali per jenis per maharoh;
+  // server juga punya jendela dedup 10 detik.
+  useEffect(() => {
+    if (!attempt || attempt.status !== "IN_PROGRESS") return;
+
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") {
+        void reportViolation("TAB_CLOSE", "Tab disembunyikan / pindah tab");
+      }
+    };
+    const onBlur = () => {
+      void reportViolation("BLUR", "Jendela ujian kehilangan fokus");
+    };
+    const onPageHide = () => {
+      void reportViolation("TAB_CLOSE", "Tab ditutup", true);
+    };
+
+    document.addEventListener("visibilitychange", onHidden);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [attempt, reportViolation]);
 
   // Kirim ulang jawaban tertunda: saat kembali online / tab terlihat.
   useEffect(() => {
@@ -574,6 +776,16 @@ export default function ExamPlayPage({
       : 0;
     const secs = attempt.timeSpentSeconds ? attempt.timeSpentSeconds % 60 : 0;
 
+    // Predikat global (ala Siakad): dari persentase skor terhadap total
+    // bobot seluruh maharoh. Skor mentah finalScore bukan persen.
+    const totalMax = sections.reduce((sum, s) => sum + (s.maxScore ?? 0), 0);
+    const totalPercent =
+      totalMax > 0 && attempt.finalScore != null
+        ? Math.round((attempt.finalScore / totalMax) * 100)
+        : null;
+    const predikat =
+      totalPercent !== null ? getPredikat(totalPercent) : null;
+
     return (
       <div className="min-h-screen bg-zinc-100 py-10 px-4 flex items-center justify-center">
         <div className="max-w-xl w-full bg-white rounded-xl shadow-xl border border-zinc-200 overflow-hidden">
@@ -598,6 +810,19 @@ export default function ExamPlayPage({
               <div className="text-5xl font-black text-zinc-900">
                 {attempt.finalScore}
               </div>
+              {predikat !== null && totalPercent !== null && (
+                <div className="mt-3 pt-3 border-t border-amber-200">
+                  <div
+                    dir="rtl"
+                    className="font-arabic text-2xl text-amber-800 leading-snug"
+                  >
+                    {predikat.arab}
+                  </div>
+                  <div className="text-sm font-bold text-zinc-900 mt-1">
+                    Predikat: {predikat.indo} ({totalPercent}%)
+                  </div>
+                </div>
+              )}
               <div className="text-xs text-amber-700 mt-2">
                 Diselesaikan dalam waktu{" "}
                 <strong>
@@ -668,6 +893,59 @@ export default function ExamPlayPage({
   const currentMaharoh = maharohs.find((m) => m.id === attempt.currentMaharohId);
   const audioLimit = currentMaharoh?.audioRepeats ?? 2;
 
+  // Grid nomor soal — dipakai di sidebar desktop dan lembar bawah HP.
+  const renderNumberGrid = (onPick?: () => void) => (
+    <>
+      <div className="grid grid-cols-5 gap-2">
+        {questions.map((q, idx) => {
+          const ans = answers[q.id];
+          const isCurrent = idx === currentIdx;
+          const isAnswered = Boolean(ans?.selectedOptionId);
+          const isDoubt = Boolean(ans?.isDoubtful);
+
+          let btnStyle =
+            "bg-zinc-100 text-zinc-700 border-zinc-200 hover:bg-zinc-200";
+          if (isDoubt) {
+            btnStyle = "bg-amber-400 text-zinc-950 border-amber-500";
+          } else if (isAnswered) {
+            btnStyle = "bg-zinc-900 text-white border-zinc-800";
+          }
+
+          return (
+            <button
+              key={q.id}
+              type="button"
+              onClick={() => {
+                setCurrentIdx(idx);
+                onPick?.();
+              }}
+              className={`h-11 rounded-xl font-bold text-xs border-2 transition flex flex-col items-center justify-center cursor-pointer ${btnStyle} ${
+                isCurrent ? "ring-2 ring-offset-2 ring-amber-500" : ""
+              }`}
+            >
+              <span>{idx + 1}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 pt-4 border-t border-zinc-100 grid grid-cols-3 gap-2 text-xs text-zinc-600">
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded bg-zinc-900 inline-block" />
+          <span>Terjawab ({answeredCount})</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded bg-amber-400 inline-block" />
+          <span>Ragu ({doubtfulCount})</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded bg-zinc-200 inline-block" />
+          <span>Kosong ({questions.length - answeredCount})</span>
+        </div>
+      </div>
+    </>
+  );
+
   const arabicSizeClass =
     fontScale === "xlarge"
       ? "text-3xl sm:text-4xl"
@@ -683,7 +961,7 @@ export default function ExamPlayPage({
         : "text-lg sm:text-xl";
 
   return (
-    <div className="min-h-screen bg-zinc-100 flex flex-col">
+    <div className="h-dvh bg-zinc-100 flex flex-col overflow-hidden">
       {/* Sticky Exam Top Bar */}
       <header className="sticky top-0 z-30 bg-zinc-900 text-white border-b border-zinc-800 shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
@@ -736,9 +1014,9 @@ export default function ExamPlayPage({
       </header>
 
       {/* Main Content Layout */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <main className="flex-1 min-h-0 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Question Card (Left 8/12) */}
-        <div className="lg:col-span-8 flex flex-col gap-4">
+        <div className="lg:col-span-8 flex flex-col gap-4 min-h-0">
           {isTimeUp && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-5 space-y-2">
               <p className="font-bold text-sm text-red-800">
@@ -764,16 +1042,49 @@ export default function ExamPlayPage({
               )}
             </div>
           )}
+          {violationNotice && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
+              <p className="text-sm text-red-800 font-medium">
+                {violationNotice}
+              </p>
+              <button
+                type="button"
+                onClick={() => setViolationNotice(null)}
+                className="shrink-0 text-xs font-bold text-red-700 hover:text-red-900 underline cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          )}
           {audioError && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
               {audioError}
             </div>
           )}
+          {examMode === "SIMULASI" &&
+            attempt.status === "IN_PROGRESS" &&
+            !isFullscreen &&
+            fullscreenSupported && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-amber-800 font-medium">
+                  Mode layar penuh belum aktif — ujian lebih nyaman dalam
+                  layar penuh.
+                </p>
+                <button
+                  type="button"
+                  onClick={enterFullscreen}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold cursor-pointer"
+                >
+                  <Maximize className="w-3.5 h-3.5" />
+                  Masuk Fullscreen
+                </button>
+              </div>
+            )}
           {currentQuestion ? (
-            <div className="bg-white rounded-xl shadow-xs border border-zinc-200 overflow-hidden flex-1 flex flex-col justify-between">
-              <div>
+            <div className="bg-white rounded-xl shadow-xs border border-zinc-200 overflow-hidden flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto">
                 {/* Question Header Bar */}
-                <div className="px-6 py-4 bg-zinc-50 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-3">
+                <div className="sticky top-0 z-10 px-6 py-4 bg-zinc-50 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
                     <span className="px-3 py-1 rounded-lg bg-zinc-900 text-white font-bold text-xs">
                       SOAL NO. {currentIdx + 1}
@@ -965,8 +1276,8 @@ export default function ExamPlayPage({
                 </div>
               </div>
 
-              {/* Bottom Navigation Controls */}
-              <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex flex-wrap items-center justify-between gap-3">
+              {/* Bottom Navigation Controls — selalu terlihat (menempel di bawah kartu) */}
+              <div className="shrink-0 px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex flex-wrap items-center justify-between gap-3">
                 <button
                   type="button"
                   disabled={currentIdx === 0}
@@ -1001,6 +1312,15 @@ export default function ExamPlayPage({
                   </span>
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => setShowNumberSheet(true)}
+                  className="lg:hidden px-4 py-2.5 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-100 text-zinc-700 font-semibold text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  <span>Nomor</span>
+                </button>
+
                 {currentIdx < questions.length - 1 ? (
                   <button
                     type="button"
@@ -1031,8 +1351,8 @@ export default function ExamPlayPage({
           )}
         </div>
 
-        {/* Sidebar: daftar maharoh + navigasi nomor soal */}
-        <div className="lg:col-span-4 space-y-4">
+        {/* Sidebar: daftar maharoh + navigasi nomor soal (desktop saja) */}
+        <div className="hidden lg:block lg:col-span-4 space-y-4 min-h-0 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xs border border-zinc-200 p-5">
             <h2 className="font-bold text-sm text-zinc-900 mb-3">
               Maharoh Ujian
@@ -1078,54 +1398,36 @@ export default function ExamPlayPage({
             <h2 className="font-bold text-sm text-zinc-900 mb-3">
               Navigasi Nomor Soal — {currentMaharohName}
             </h2>
-
-            <div className="grid grid-cols-5 gap-2">
-              {questions.map((q, idx) => {
-                const ans = answers[q.id];
-                const isCurrent = idx === currentIdx;
-                const isAnswered = Boolean(ans?.selectedOptionId);
-                const isDoubt = Boolean(ans?.isDoubtful);
-
-                let btnStyle =
-                  "bg-zinc-100 text-zinc-700 border-zinc-200 hover:bg-zinc-200";
-                if (isDoubt) {
-                  btnStyle = "bg-amber-400 text-zinc-950 border-amber-500";
-                } else if (isAnswered) {
-                  btnStyle = "bg-zinc-900 text-white border-zinc-800";
-                }
-
-                return (
-                  <button
-                    key={q.id}
-                    type="button"
-                    onClick={() => setCurrentIdx(idx)}
-                    className={`h-11 rounded-xl font-bold text-xs border-2 transition flex flex-col items-center justify-center cursor-pointer ${btnStyle} ${
-                      isCurrent ? "ring-2 ring-offset-2 ring-amber-500" : ""
-                    }`}
-                  >
-                    <span>{idx + 1}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-5 pt-4 border-t border-zinc-100 grid grid-cols-3 gap-2 text-xs text-zinc-600">
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-zinc-900 inline-block" />
-                <span>Terjawab ({answeredCount})</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-amber-400 inline-block" />
-                <span>Ragu ({doubtfulCount})</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-zinc-200 inline-block" />
-                <span>Kosong ({questions.length - answeredCount})</span>
-              </div>
-            </div>
+            {renderNumberGrid()}
           </div>
         </div>
       </main>
+
+      {/* Lembar nomor soal (HP) — grid yang sama dengan sidebar desktop */}
+      {showNumberSheet && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div
+            className="absolute inset-0 bg-zinc-950/60 backdrop-blur-xs"
+            onClick={() => setShowNumberSheet(false)}
+          />
+          <div className="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl shadow-2xl border-t border-zinc-200 p-5 max-h-[70dvh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-sm text-zinc-900">
+                Navigasi Nomor Soal — {currentMaharohName}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowNumberSheet(false)}
+                className="p-2 rounded-lg hover:bg-zinc-100 text-zinc-600 cursor-pointer"
+                aria-label="Tutup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {renderNumberGrid(() => setShowNumberSheet(false))}
+          </div>
+        </div>
+      )}
 
       {/* Modal Konfirmasi Kumpulkan Maharoh */}
       {showConfirmModal && (

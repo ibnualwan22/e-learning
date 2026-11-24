@@ -96,6 +96,22 @@ export default function ExamRulesPage({
     setStarting(true);
     setError("");
 
+    // Fullscreen ala Siakad Usbu (khusus SIMULASI): harus diminta dari
+    // gestur klik ini. iPhone Safari tidak menyediakan API-nya — gagal
+    // diam-diam, ujian tetap jalan; halaman play menawarkan masuk lagi.
+    if (exam?.mode === "SIMULASI") {
+      const el = document.documentElement as unknown as {
+        requestFullscreen?: () => Promise<void>;
+      };
+      if (el.requestFullscreen) {
+        try {
+          await el.requestFullscreen();
+        } catch {
+          // Lanjut tanpa fullscreen.
+        }
+      }
+    }
+
     try {
       const res = await fetch("/api/exam/start", {
         method: "POST",

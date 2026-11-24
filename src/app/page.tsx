@@ -251,9 +251,10 @@ export default async function HomePage() {
                     />
                   </Link>
 
+                  {/* Tombol Champion disembunyikan sementara (simulasi 25 Nov) — hapus 'hidden' untuk menampilkan lagi. */}
                   <Link
                     href="/champion"
-                    className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-md bg-white/10 hover:bg-white/20 active:bg-white/10 border border-white/20 text-white font-semibold text-base transition duration-[200ms] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--color-surface-strong)]"
+                    className="hidden inline-flex items-center justify-center gap-2 px-6 py-4 rounded-md bg-white/10 hover:bg-white/20 active:bg-white/10 border border-white/20 text-white font-semibold text-base transition duration-[200ms] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--color-surface-strong)]"
                   >
                     <Trophy className="w-5 h-5 shrink-0" aria-hidden="true" />
                     <span>Ikut TOAFL Champion</span>
@@ -452,7 +453,8 @@ export default async function HomePage() {
                 </Link>
               </article>
 
-              <article className="rounded-md bg-zinc-950 text-white border border-zinc-800 p-[var(--space-1)] sm:p-[var(--space-2)]">
+              {/* Kartu Champion disembunyikan sementara (simulasi 25 Nov) — hapus 'hidden' untuk menampilkan lagi. */}
+              <article className="hidden rounded-md bg-zinc-950 text-white border border-zinc-800 p-[var(--space-1)] sm:p-[var(--space-2)]">
                 <span className="inline-flex items-center gap-2 text-base font-bold text-yellow-400">
                   <Trophy className="w-5 h-5" aria-hidden="true" />
                   TOAFL Champion
@@ -680,9 +682,10 @@ export default async function HomePage() {
                 <GraduationCap className="w-5 h-5" aria-hidden="true" />
                 <span>Daftar Simulasi</span>
               </Link>
+              {/* Tombol Champion disembunyikan sementara (simulasi 25 Nov) — hapus 'hidden' untuk menampilkan lagi. */}
               <Link
                 href="/champion"
-                className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-md bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold text-base transition duration-[200ms]"
+                className="hidden inline-flex items-center justify-center gap-2 px-6 py-4 rounded-md bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold text-base transition duration-[200ms]"
               >
                 <Trophy className="w-5 h-5" aria-hidden="true" />
                 <span>Ikut TOAFL Champion</span>

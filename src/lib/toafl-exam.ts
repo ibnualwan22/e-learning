@@ -361,6 +361,9 @@ export async function buildAttemptState(attemptId: string) {
       finishedAt: s.finishedAt,
       score: s.score,
       questionCount: snap.questions.length,
+      // Total bobot maksimal maharoh ini (dari snapshot) — dasar
+      // persentase untuk predikat di halaman hasil.
+      maxScore: snap.questions.reduce((sum, q) => sum + q.weight, 0),
     };
   });
 

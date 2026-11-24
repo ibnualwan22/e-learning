@@ -16,6 +16,7 @@ import {
   X,
   BarChart3,
 } from "lucide-react";
+import ToaflMonitoring from "./toafl-monitoring";
 
 interface MonitoringAttempt {
   id: string;
@@ -113,6 +114,10 @@ export default function AdminMonitoringPage() {
     "MONITORING" | "LEADERBOARD" | "STATS"
   >("MONITORING");
 
+  // TOAFL Fase 5 — sakelar tampilan monitoring: TOAFL (produk live)
+  // atau Olimpiade lama. Default TOAFL.
+  const [view, setView] = useState<"TOAFL" | "OLIMPIADE">("TOAFL");
+
   // Jam server (offset terhadap jam perangkat) + detak 1 detik untuk
   // hitung mundur sisa waktu yang live.
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
@@ -163,12 +168,13 @@ export default function AdminMonitoringPage() {
   }, []);
 
   useEffect(() => {
+    if (view !== "OLIMPIADE") return;
     loadMonitoring(selectedSessionId || undefined);
     const interval = setInterval(() => {
       loadMonitoring(selectedSessionId || undefined);
     }, 10000);
     return () => clearInterval(interval);
-  }, [selectedSessionId, loadMonitoring]);
+  }, [selectedSessionId, loadMonitoring, view]);
 
   async function handleAction(
     attemptId: string,
@@ -413,6 +419,34 @@ export default function AdminMonitoringPage() {
 
   return (
     <div className="space-y-6">
+      {/* Sakelar monitoring: TOAFL (live) / Olimpiade (lama) */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setView("TOAFL")}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold cursor-pointer ${
+            view === "TOAFL"
+              ? "bg-zinc-900 text-white"
+              : "bg-white text-zinc-700 border border-zinc-300"
+          }`}
+        >
+          Monitoring TOAFL
+        </button>
+        <button
+          onClick={() => setView("OLIMPIADE")}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold cursor-pointer ${
+            view === "OLIMPIADE"
+              ? "bg-zinc-900 text-white"
+              : "bg-white text-zinc-700 border border-zinc-300"
+          }`}
+        >
+          Olimpiade (lama)
+        </button>
+      </div>
+
+      {view === "TOAFL" ? (
+        <ToaflMonitoring />
+      ) : (
+        <>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1330,6 +1364,8 @@ export default function AdminMonitoringPage() {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

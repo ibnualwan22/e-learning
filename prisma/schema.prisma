@@ -136,6 +136,30 @@ model Maharoh {
   updatedAt           DateTime   @updatedAt
 }
 
+// TOAFL Fase 5: pelanggaran yang terdeteksi klien selama ujian.
+// TAB_CLOSE = tab ditutup/pindah (visibilitychange hidden, pagehide);
+// BLUR = jendela kehilangan fokus; FLOATING_APP = aplikasi mengambang
+// (belum ada deteksi browser yang andal — tipe disediakan untuk
+// pelaporan server/manual di masa depan, klien saat ini tidak
+// mengirimkannya). Simulasi: memicu auto-submit maharoh berjalan.
+// Champion: hanya dicatat.
+enum ViolationType {
+  TAB_CLOSE
+  FLOATING_APP
+  BLUR
+}
+
+model ViolationEvent {
+  id        String        @id @default(cuid())
+  attemptId String
+  attempt   Attempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  type      ViolationType
+  at        DateTime      @default(now())
+  detail    String?
+
+  @@index([attemptId, at])
+}
+
 // TOAFL Fase 4: attempt ujian TOAFL (mesin baru). Satu attempt milik satu
 // Exam (mode SIMULASI/CHAMPION). Champion sekali saja + simulasi boleh
 // diulang: aturan itu ditegakkan di API start (bukan @@unique), karena satu
@@ -157,6 +181,7 @@ model Attempt {
   currentMaharohId String?
   sections         SectionAttempt[]
   answers          AttemptAnswer[]
+  violations       ViolationEvent[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -350,4 +375,5 @@ model LegacyAttemptAnswer {
 
   @@unique([attemptId, questionId])
 }
+
 
