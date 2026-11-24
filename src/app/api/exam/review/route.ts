@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import type { SectionSnapshot } from "@/lib/toafl-exam";
+import { cumulativeScore, normalizeSectionScore } from "@/lib/toafl-score";
 
 // TOAFL Fase 6 — pembahasan hasil ujian.
 // GET /api/exam/review?attemptId=...
@@ -68,6 +69,12 @@ export async function GET(req: Request) {
   const sections = attempt.sections.map((s) => {
     const snap = s.snapshot as unknown as SectionSnapshot;
     const maxScore = snap.questions.reduce((sum, q) => sum + q.weight, 0);
+    // Jumlah jawaban benar (untuk "X dari N soal benar" di halaman hasil).
+    const correctCount = snap.questions.filter((q) => {
+      const selected = ansMap.get(q.id);
+      const correct = q.options.find((o) => o.isCorrect);
+      return !!selected && !!correct && selected === correct.id;
+    }).length;
     return {
       id: s.id,
       maharohId: s.maharohId,
@@ -75,6 +82,9 @@ export async function GET(req: Request) {
       status: s.status,
       score: s.score,
       maxScore,
+      // Nilai maharoh skala 0–100 (skor mentah / bobot maksimal × 100).
+      score100: normalizeSectionScore(s.score, maxScore),
+      correctCount,
       questionCount: snap.questions.length,
       questions: snap.questions.map((q) => ({
         id: q.id,
@@ -98,6 +108,9 @@ export async function GET(req: Request) {
   });
 
   const totalMax = sections.reduce((sum, s) => sum + s.maxScore, 0);
+  // Nilai akumulatif = rata-rata nilai maharoh (tiap maharoh bobot sama),
+  // skala 0–100. Sama dengan finalScore yang disimpan saat finalisasi.
+  const cumulative = cumulativeScore(sections);
 
   return NextResponse.json({
     attempt: {
@@ -117,6 +130,7 @@ export async function GET(req: Request) {
     },
     showReview,
     totalMax,
+    cumulative,
     sections,
   });
 }

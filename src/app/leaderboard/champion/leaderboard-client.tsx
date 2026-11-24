@@ -175,7 +175,7 @@ export default function LeaderboardClient({
                     <tr className="border-b border-zinc-200 text-left text-zinc-500">
                       <th className="px-4 py-3 font-semibold w-16 text-center">#</th>
                       <th className="px-4 py-3 font-semibold">Nama</th>
-                      <th className="px-4 py-3 font-semibold text-center">Skor</th>
+                      <th className="px-4 py-3 font-semibold text-center">Nilai / 100</th>
                       <th className="px-4 py-3 font-semibold text-center">Durasi</th>
                       <th className="px-4 py-3 font-semibold">Selesai</th>
                     </tr>

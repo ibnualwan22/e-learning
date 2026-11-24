@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import type { Prisma } from "@prisma/client";
+import { cumulativeScore } from "./toafl-score";
 
 // TOAFL Fase 4 — mesin ujian: snapshot, acak, skor, timer per maharoh.
 // Semua penegakan waktu memakai jam server (expiresAt di DB), bukan jam
@@ -237,6 +238,14 @@ export async function finalizeAttempt(
   const total = Math.round(
     attempt.sections.reduce((sum, s) => sum + s.score, 0) * 100
   ) / 100;
+  // finalScore = nilai akumulatif (rata-rata nilai maharoh, skala 0–100);
+  // rawScore tetap jumlah bobot mentah. Lihat src/lib/toafl-score.ts.
+  const scored = attempt.sections.map((s) => {
+    const snap = s.snapshot as unknown as SectionSnapshot;
+    const maxScore = snap.questions.reduce((sum, q) => sum + q.weight, 0);
+    return { score: s.score, maxScore };
+  });
+  const final = cumulativeScore(scored);
   const status = statusOverride ?? "SUBMITTED";
   const finishedAt = new Date();
   const timeSpentSeconds = Math.max(
@@ -251,7 +260,7 @@ export async function finalizeAttempt(
       finishedAt,
       timeSpentSeconds,
       rawScore: total,
-      finalScore: total,
+      finalScore: final,
     },
   });
 }

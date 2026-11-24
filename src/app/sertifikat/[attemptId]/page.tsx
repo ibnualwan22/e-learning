@@ -32,6 +32,7 @@ interface ReviewData {
     certificateReleased: boolean;
   };
   totalMax: number;
+  cumulative: number;
 }
 
 export default function SertifikatPage({
@@ -100,12 +101,9 @@ export default function SertifikatPage({
     );
   }
 
-  const totalPercent =
-    data.totalMax > 0
-      ? Math.round((data.attempt.finalScore / data.totalMax) * 100)
-      : null;
-  const predikat =
-    totalPercent !== null ? getPredikat(totalPercent) : null;
+  // Nilai akumulatif sudah skala 0–100 (rata-rata nilai maharoh).
+  const totalPercent = data.cumulative;
+  const predikat = getPredikat(totalPercent);
   const tanggal = data.attempt.finishedAt
     ? new Date(data.attempt.finishedAt).toLocaleDateString("id-ID", {
         day: "numeric",
@@ -165,26 +163,24 @@ export default function SertifikatPage({
                 Nilai Akhir
               </div>
               <div className="text-4xl font-black text-zinc-900 mt-1">
-                {data.attempt.finalScore}
+                {data.cumulative}
                 <span className="text-lg font-bold text-zinc-400">
                   {" "}
-                  / {data.totalMax}
+                  / 100
                 </span>
               </div>
-              {predikat !== null && totalPercent !== null && (
-                <div className="mt-2">
-                  <span
-                    dir="rtl"
-                    className="font-arabic text-xl text-amber-800"
-                  >
-                    {predikat.arab}
-                  </span>
-                  <span className="text-sm font-bold text-zinc-900">
-                    {" "}
-                    • {predikat.indo} ({totalPercent}%)
-                  </span>
-                </div>
-              )}
+              <div className="mt-2">
+                <span
+                  dir="rtl"
+                  className="font-arabic text-xl text-amber-800"
+                >
+                  {predikat.arab}
+                </span>
+                <span className="text-sm font-bold text-zinc-900">
+                  {" "}
+                  • {predikat.indo} ({totalPercent}%)
+                </span>
+              </div>
             </div>
 
             <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-zinc-600 max-w-lg mx-auto">

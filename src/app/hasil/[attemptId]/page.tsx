@@ -16,7 +16,8 @@ import { getTextDirection } from "@/lib/text-direction";
 
 // Predikat hasil — tabel yang sama dengan Siakad (lib/formatters.ts
 // getPredikat): >=90 Imtiyaz, >=80 Jayyid Jiddan, >=70 Jayyid,
-// di bawah 70 Maqbul. Dihitung dari persentase skor terhadap total bobot.
+// di bawah 70 Maqbul. Dihitung dari nilai akumulatif (rata-rata nilai
+// maharoh, skala 0–100) — keputusan user 24 Nov 2026.
 function getPredikat(persen: number) {
   if (persen >= 90) return { indo: "Imtiyaz", arab: "الامتياز" };
   if (persen >= 80) return { indo: "Jayyid Jiddan", arab: "جيد جدا" };
@@ -52,6 +53,8 @@ interface ReviewSection {
   status: "IN_PROGRESS" | "SUBMITTED" | "TIME_UP";
   score: number;
   maxScore: number;
+  score100: number;
+  correctCount: number;
   questionCount: number;
   questions: ReviewQuestion[];
 }
@@ -74,6 +77,7 @@ interface ReviewData {
   };
   showReview: boolean;
   totalMax: number;
+  cumulative: number;
   sections: ReviewSection[];
 }
 
@@ -134,12 +138,9 @@ export default function HasilPage({
     );
   }
 
-  const totalPercent =
-    data.totalMax > 0
-      ? Math.round((data.attempt.finalScore / data.totalMax) * 100)
-      : null;
-  const predikat =
-    totalPercent !== null ? getPredikat(totalPercent) : null;
+  // Nilai akumulatif sudah skala 0–100 (rata-rata nilai maharoh).
+  const totalPercent = data.cumulative;
+  const predikat = getPredikat(totalPercent);
   const mins = data.attempt.timeSpentSeconds
     ? Math.floor(data.attempt.timeSpentSeconds / 60)
     : 0;
@@ -159,25 +160,23 @@ export default function HasilPage({
               {data.exam.levelName} • {data.attempt.userName}
             </p>
             <div className="text-5xl font-black mt-4">
-              {data.attempt.finalScore}
+              {data.cumulative}
               <span className="text-xl font-bold text-zinc-400">
                 {" "}
-                / {data.totalMax}
+                / 100
               </span>
             </div>
-            {predikat !== null && totalPercent !== null && (
-              <div className="mt-3">
-                <div
-                  dir="rtl"
-                  className="font-arabic text-2xl text-amber-300 leading-snug"
-                >
-                  {predikat.arab}
-                </div>
-                <div className="text-sm font-bold mt-1">
-                  Predikat: {predikat.indo} ({totalPercent}%)
-                </div>
+            <div className="mt-3">
+              <div
+                dir="rtl"
+                className="font-arabic text-2xl text-amber-300 leading-snug"
+              >
+                {predikat.arab}
               </div>
-            )}
+              <div className="text-sm font-bold mt-1">
+                Predikat: {predikat.indo} ({totalPercent}%)
+              </div>
+            </div>
             <div className="text-xs text-zinc-300 mt-2">
               Diselesaikan dalam waktu{" "}
               <strong>
@@ -200,12 +199,12 @@ export default function HasilPage({
                   {s.maharohName}
                   <span className="text-xs text-zinc-500 font-normal">
                     {" "}
-                    • {s.questionCount} soal •{" "}
+                    • {s.correctCount} dari {s.questionCount} soal benar •{" "}
                     {s.status === "TIME_UP" ? "waktu habis" : "dikumpulkan"}
                   </span>
                 </span>
                 <span className="font-black text-zinc-900">
-                  {s.score} / {s.maxScore}
+                  {s.score100} / 100
                 </span>
               </div>
             ))}
@@ -264,7 +263,8 @@ export default function HasilPage({
                     {s.maharohName}
                   </span>
                   <span className="text-xs text-zinc-500 font-normal">
-                    Skor {s.score} / {s.maxScore}
+                    Skor {s.score100} / 100 • {s.correctCount} dari{" "}
+                    {s.questionCount} soal benar
                   </span>
                 </h3>
                 {s.questions.map((q, qi) => {

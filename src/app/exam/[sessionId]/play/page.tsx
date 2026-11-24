@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, use, useRef } from "react";
 import { renderRichText } from "@/lib/safeHtml";
 import { getTextDirection } from "@/lib/text-direction";
+import { normalizeSectionScore } from "@/lib/toafl-score";
 import { useRouter } from "next/navigation";
 import {
   Clock,
@@ -82,7 +83,8 @@ interface AnswerState {
 
 // Predikat hasil — tabel yang sama dengan Siakad (lib/formatters.ts
 // getPredikat): >=90 Imtiyaz, >=80 Jayyid Jiddan, >=70 Jayyid,
-// di bawah 70 Maqbul. Dihitung dari persentase skor terhadap total bobot.
+// di bawah 70 Maqbul. Dihitung dari nilai akumulatif (rata-rata nilai
+// maharoh, skala 0–100).
 function getPredikat(persen: number) {
   if (persen >= 90) return { indo: "Imtiyaz", arab: "الامتياز" };
   if (persen >= 80) return { indo: "Jayyid Jiddan", arab: "جيد جدا" };
@@ -788,12 +790,11 @@ export default function ExamPlayPage({
       : 0;
     const secs = attempt.timeSpentSeconds ? attempt.timeSpentSeconds % 60 : 0;
 
-    // Predikat global (ala Siakad): dari persentase skor terhadap total
-    // bobot seluruh maharoh. Skor mentah finalScore bukan persen.
-    const totalMax = sections.reduce((sum, s) => sum + (s.maxScore ?? 0), 0);
+    // Predikat global (ala Siakad): dari nilai akumulatif (rata-rata
+    // nilai maharoh, skala 0–100) — finalScore sudah berupa nilai itu.
     const totalPercent =
-      totalMax > 0 && attempt.finalScore != null
-        ? Math.round((attempt.finalScore / totalMax) * 100)
+      attempt.finalScore != null
+        ? Math.round(attempt.finalScore * 10) / 10
         : null;
     const predikat =
       totalPercent !== null ? getPredikat(totalPercent) : null;
@@ -821,6 +822,10 @@ export default function ExamPlayPage({
               </div>
               <div className="text-5xl font-black text-zinc-900">
                 {attempt.finalScore}
+                <span className="text-xl font-bold text-zinc-400">
+                  {" "}
+                  / 100
+                </span>
               </div>
               {predikat !== null && totalPercent !== null && (
                 <div className="mt-3 pt-3 border-t border-amber-200">
@@ -860,7 +865,9 @@ export default function ExamPlayPage({
                       {s.status === "TIME_UP" ? "waktu habis" : "dikumpulkan"}
                     </span>
                   </span>
-                  <span className="font-black text-zinc-900">{s.score}</span>
+                  <span className="font-black text-zinc-900">
+                    {normalizeSectionScore(s.score, s.maxScore ?? 0)} / 100
+                  </span>
                 </div>
               ))}
             </div>

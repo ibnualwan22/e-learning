@@ -312,7 +312,7 @@ export default function ParticipantDashboardPage() {
                       <p className="text-xs text-zinc-600 flex items-center gap-1">
                         <Trophy className="w-3.5 h-3.5 text-amber-500" />
                         Skor terakhir:{" "}
-                        <strong>{exam.attempt.finalScore}</strong>
+                        <strong>{exam.attempt.finalScore} / 100</strong>
                       </p>
                     )}
                   </div>
@@ -406,7 +406,7 @@ export default function ParticipantDashboardPage() {
                       <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-zinc-600">
                         <span className="inline-flex items-center gap-1 font-semibold text-amber-700">
                           <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                          Skor Akhir: {att.finalScore}
+                          Skor Akhir: {att.finalScore} / 100
                         </span>
                         <span>
                           Waktu: {formatDuration(att.timeSpentSeconds)}
