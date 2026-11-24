@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { decodeHtmlEntities } from "@/lib/decodeHtml";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -17,15 +18,20 @@ type OptionInput = {
 };
 
 function parseOptions(options: unknown): OptionInput[] | null {
-  if (!Array.isArray(options) || options.length < 2) return null;
-  const cleaned = options.map((opt) => opt as OptionInput);
+  if (!Array.isArray(options)) return null;
+  // Opsi kosong dibuang, bukan ditolak — soal boleh punya 2, 3, atau 4
+  // opsi. Label diurutkan ulang (A, B, C...) supaya tidak ada lompatan
+  // bila opsi tengah yang kosong. Sisanya harus >= 2 dan salah satunya
+  // kunci jawaban.
+  const cleaned = (options as OptionInput[])
+    .filter((opt) => opt.content?.trim() || opt.audioUrl?.trim())
+    .map((opt, idx) => ({
+      ...opt,
+      label: String.fromCharCode(65 + idx),
+    }));
+  if (cleaned.length < 2) return null;
   const hasCorrect = cleaned.some((opt) => opt.isCorrect);
   if (!hasCorrect) return null;
-  // Tiap opsi harus punya isi teks atau audio.
-  const hasEmpty = cleaned.some(
-    (opt) => !opt.content?.trim() && !opt.audioUrl?.trim()
-  );
-  if (hasEmpty) return null;
   return cleaned;
 }
 
@@ -123,15 +129,15 @@ export async function POST(req: Request) {
         levelId,
         maharohId,
         categoryId: null,
-        content: content.trim(),
+        content: decodeHtmlEntities(content.trim()),
         direction: direction === "LTR" ? "LTR" : "RTL",
         weight: Number(weight) || 1,
-        explanation: explanation?.trim() || null,
+        explanation: decodeHtmlEntities(explanation?.trim() || "") || null,
         audioUrl: audioUrl?.trim() || null,
         options: {
           create: cleanOptions.map((opt, idx) => ({
             label: opt.label || String.fromCharCode(65 + idx),
-            content: (opt.content || "").trim(),
+            content: decodeHtmlEntities((opt.content || "").trim()),
             direction:
               opt.direction === "LTR"
                 ? "LTR"

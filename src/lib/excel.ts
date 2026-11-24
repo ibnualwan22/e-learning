@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { decodeHtmlEntities } from "./decodeHtml";
 
 // Satu sel Excel, dalam dua bentuk: teks polos (untuk nama/email/angka)
 // dan HTML aman (untuk soal/opsi/pembahasan yang memakai format).
@@ -19,11 +20,13 @@ function isRichTextValue(
   );
 }
 
-// Bersihkan karakter liar hasil copy-paste Word/Excel: karakter kontrol,
-// karakter tak terlihat (zero-width, BOM), spasi non-standar -> spasi biasa,
-// spasi ganda -> satu spasi. Harakat Arab dipertahankan (bukan karakter liar).
+// Bersihkan karakter liar hasil copy-paste Word/Excel: entitas HTML
+// (&quot; &amp; &nbsp; dsb, termasuk bentuk terbalik RTL ;quot&) ->
+// karakter aslinya; karakter kontrol, karakter tak terlihat (zero-width,
+// BOM), spasi non-standar -> spasi biasa, spasi ganda -> satu spasi.
+// Harakat Arab dipertahankan (bukan karakter liar).
 export function cleanText(s: string): string {
-  return s
+  return decodeHtmlEntities(s)
     .normalize("NFC")
     .replace(/[\u0000-\u001F\u007F]/g, "")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
@@ -41,11 +44,12 @@ export function escapeHtml(s: string): string {
 }
 
 // Potongan berformat (bold/underline/italic) -> HTML dengan whitelist ketat.
-// Hanya <strong>, <u>, <em> yang dihasilkan; semua teks di-escape dulu.
+// Hanya <strong>, <u>, <em> yang dihasilkan; semua teks di-decode dulu
+// (entitas copy-paste) lalu di-escape.
 export function richTextToSafeHtml(runs: RichRun[]): string {
   return runs
     .map((run) => {
-      let t = escapeHtml(run.text);
+      let t = escapeHtml(decodeHtmlEntities(run.text));
       if (run.font?.italic) t = `<em>${t}</em>`;
       if (run.font?.underline) t = `<u>${t}</u>`;
       if (run.font?.bold) t = `<strong>${t}</strong>`;
@@ -65,13 +69,17 @@ export function cellToValue(value: unknown): CellValue {
   if (typeof value === "object") {
     const withText = value as { text?: unknown };
     if (typeof withText.text === "string") {
+      // Sel polos disimpan sebagai teks mentah (bukan HTML ter-escape):
+      // renderRichText menampilkan isi tanpa tag sebagai teks biasa, dan
+      // React meng-escape otomatis saat tampil — jadi " di sel Excel
+      // tampil sebagai ", bukan sebagai &quot;.
       const plain = cleanText(withText.text);
-      return { plain, html: escapeHtml(plain) };
+      return { plain, html: plain };
     }
     return { plain: "", html: "" };
   }
   const plain = cleanText(String(value));
-  return { plain, html: escapeHtml(plain) };
+  return { plain, html: plain };
 }
 
 // Baca sheet pertama workbook. Baris 1 = header. Baris yang seluruh selnya

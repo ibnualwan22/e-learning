@@ -458,7 +458,9 @@ export default function AdminBankSoalPage() {
             C | Opsi D | Kunci | Pembahasan. Level dan Maharoh harus sama
             persis dengan nama di menu Level TOAFL dan Maharoh. Format
             tebal, garis bawah, dan miring pada sel ikut terimpor; karakter
-            liar dibersihkan otomatis dan harakat dipertahankan. Audio soal
+            liar dibersihkan otomatis dan harakat dipertahankan. Opsi boleh
+            2–4: kolom opsi yang kosong tidak dibuat, jadi soal dengan opsi
+            sampai B atau C saja tampil sampai B atau C saja. Audio soal
             tidak bisa diimpor — tambahkan lewat Tambah/Edit Soal.
           </p>
         </div>

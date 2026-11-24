@@ -33,7 +33,9 @@ type PreviewRow = {
 // Level dan Maharoh dicocokkan dengan nama yang sudah ada di admin —
 // TIDAK dibuat otomatis (Level/Maharoh punya urutan + menit default yang
 // diatur admin). Arah tulisan (RTL/LTR) dideteksi otomatis dari isi,
-// sama seperti form manual.
+// sama seperti form manual. Jumlah opsi fleksibel 2–4: hanya kolom opsi
+// yang terisi yang dibuat (soal dengan opsi sampai B atau C saja tampil
+// sampai B atau C saja di bank soal dan halaman ujian).
 // POST multipart (file .xlsx) -> pratinjau, tanpa menulis apa pun.
 // POST JSON { rows: PreviewRow[] } -> konfirmasi: buat soal yang valid.
 export async function POST(req: Request) {
@@ -136,17 +138,18 @@ async function handlePreview(req: Request) {
     const errors: string[] = [];
     if (!contentCell?.plain) errors.push("Soal kosong");
 
+    // Opsi variabel: hanya opsi yang terisi yang disimpan dan ditampilkan
+    // (soal boleh punya 2, 3, atau 4 opsi — bila file hanya sampai B atau C,
+    // kotak D dst tidak dibuat). Kolom opsi yang kosong dilewati di sini,
+    // bukan dibuat sebagai opsi kosong.
     const options: PreviewOption[] = [];
     for (const label of OPTION_LABELS) {
       const col = opsiCols[label];
       const cell = col ? row[col] : undefined;
-      options.push({
-        label,
-        html: cell?.html ?? "",
-        plain: cell?.plain ?? "",
-      });
+      if (!cell?.plain) continue;
+      options.push({ label, html: cell.html, plain: cell.plain });
     }
-    const filled = options.filter((o) => o.plain);
+    const filled = options;
     if (filled.length < 2) errors.push("Minimal 2 opsi harus terisi");
 
     const keyLetter = (row[kunciCol as string]?.plain ?? "")

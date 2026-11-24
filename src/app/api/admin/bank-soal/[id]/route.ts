@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { decodeHtmlEntities } from "@/lib/decodeHtml";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -52,30 +53,33 @@ export async function PUT(
       );
     }
 
-    if (!Array.isArray(options) || options.length < 2) {
+    // Opsi kosong dibuang, bukan ditolak — soal boleh punya 2, 3, atau 4
+    // opsi. Label diurutkan ulang (A, B, C...) supaya tidak ada lompatan.
+    const cleanOptions = (Array.isArray(options) ? options : [])
+      .filter(
+        (opt: { content?: string; audioUrl?: string }) =>
+          opt.content?.trim() || opt.audioUrl?.trim()
+      )
+      .map(
+        (
+          opt: { content?: string; audioUrl?: string; [k: string]: unknown },
+          idx: number
+        ) => ({ ...opt, label: String.fromCharCode(65 + idx) })
+      );
+
+    if (cleanOptions.length < 2) {
       return NextResponse.json(
         { error: "Minimal harus ada 2 opsi jawaban" },
         { status: 400 }
       );
     }
 
-    const hasCorrect = options.some(
+    const hasCorrect = cleanOptions.some(
       (opt: { isCorrect?: boolean }) => opt.isCorrect
     );
     if (!hasCorrect) {
       return NextResponse.json(
         { error: "Pilih salah satu opsi sebagai kunci jawaban benar" },
-        { status: 400 }
-      );
-    }
-
-    const hasEmpty = options.some(
-      (opt: { content?: string; audioUrl?: string }) =>
-        !opt.content?.trim() && !opt.audioUrl?.trim()
-    );
-    if (hasEmpty) {
-      return NextResponse.json(
-        { error: "Tiap opsi harus punya teks atau audio" },
         { status: 400 }
       );
     }
@@ -93,15 +97,15 @@ export async function PUT(
       data: {
         levelId,
         maharohId,
-        content: content.trim(),
+        content: decodeHtmlEntities(content.trim()),
         direction: direction === "LTR" ? "LTR" : "RTL",
         weight: Number(weight) || 1,
-        explanation: explanation?.trim() || null,
+        explanation: decodeHtmlEntities(explanation?.trim() || "") || null,
         audioUrl: audioUrl?.trim() || null,
         options: {
-          create: (options as OptionInput[]).map((opt, idx) => ({
+          create: (cleanOptions as OptionInput[]).map((opt, idx) => ({
             label: opt.label || String.fromCharCode(65 + idx),
-            content: (opt.content || "").trim(),
+            content: decodeHtmlEntities((opt.content || "").trim()),
             direction:
               opt.direction === "LTR"
                 ? "LTR"

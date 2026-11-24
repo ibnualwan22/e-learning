@@ -57,7 +57,7 @@ export async function GET() {
   ]);
   example.getRow(1).font = { bold: true };
   const row = example.addRow([
-    "Level 1",
+    "Level 1 Mubtadi'",
     "Istima'",
     1,
     "",
@@ -85,9 +85,10 @@ export async function GET() {
   guide.addRow(["3. Kunci diisi satu huruf: A, B, C, atau D, dan opsi tersebut harus terisi."]);
   guide.addRow(["4. Bobot kosong berarti 1."]);
   guide.addRow(["5. Arah tulisan (RTL/LTR) dideteksi otomatis dari isi soal dan opsi."]);
-  guide.addRow(["6. Format tebal/garis bawah/miring pada sel akan ikut terimpor. Karakter liar hasil copy-paste dibersihkan otomatis; harakat dipertahankan."]);
-  guide.addRow(["7. Audio soal (Istima') tidak bisa diimpor dari Excel — tambahkan lewat tombol Tambah Soal atau Edit."]);
-  guide.addRow(["8. Sheet Contoh hanya contoh dan tidak ikut terimpor."]);
+  guide.addRow(["6. Format tebal/garis bawah/miring pada sel akan ikut terimpor. Karakter liar hasil copy-paste dibersihkan otomatis (termasuk &quot; &amp; dan sejenisnya dari web/Word); harakat dipertahankan."]);
+  guide.addRow(["7. Jumlah opsi fleksibel: minimal 2 (A dan B). Bila soal hanya punya opsi sampai B atau C, kosongkan kolom sesudahnya — hanya opsi yang terisi yang dibuat dan ditampilkan."]);
+  guide.addRow(["8. Audio soal (Istima') tidak bisa diimpor dari Excel — tambahkan lewat tombol Tambah Soal atau Edit."]);
+  guide.addRow(["9. Sheet Contoh hanya contoh dan tidak ikut terimpor."]);
   guide.columns = [{ width: 120 }];
 
   const buffer = await workbook.xlsx.writeBuffer();
