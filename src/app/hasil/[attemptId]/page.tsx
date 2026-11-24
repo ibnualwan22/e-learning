@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
-  XCircle2,
+  XCircle,
   Trophy,
   Award,
   Volume2,
@@ -299,7 +299,7 @@ export default function HasilPage({
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-100 text-red-700 font-bold text-xs">
-                            <XCircle2 className="w-3.5 h-3.5" />
+                            <XCircle className="w-3.5 h-3.5" />
                             Salah — jawabanmu: {selected?.label}
                           </span>
                         )}
@@ -366,7 +366,7 @@ export default function HasilPage({
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                               )}
                               {isOptSelected && !isOptCorrect && (
-                                <XCircle2 className="w-4 h-4 text-red-500 shrink-0" />
+                                <XCircle className="w-4 h-4 text-red-500 shrink-0" />
                               )}
                             </div>
                           );
