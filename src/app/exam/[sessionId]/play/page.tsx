@@ -1267,15 +1267,16 @@ export default function ExamPlayPage({
 
                 {/* Question Content */}
                 <div className="p-6 sm:p-8">
-                  {/* Teks bacaan Qira'ah — tampil di semua soal maharoh
-                      Qira'ah. Kartu bisa ditutup/dibuka; isi bisa di-scroll
-                      supaya soal tetap terjangkau di HP. */}
+                  {/* Teks bacaan Qira'ah — SATU CARD dengan soal + opsi:
+                      teks mengalir di atas soal (tanpa kotak scroll
+                      bersarang, supaya tidak menimpa soal); dipisah garis
+                      saja. Bisa dilipat. */}
                   {passage && (
-                    <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50/60 overflow-hidden">
+                    <div className="mb-6 pb-6 border-b border-zinc-200">
                       <button
                         type="button"
                         onClick={() => setPassageOpen((v) => !v)}
-                        className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left cursor-pointer"
+                        className="w-full flex items-center justify-between gap-2 text-left cursor-pointer mb-3"
                       >
                         <span className="flex items-center gap-2 min-w-0">
                           <span className="font-bold text-emerald-900 text-sm sm:text-base">
@@ -1290,15 +1291,11 @@ export default function ExamPlayPage({
                         </span>
                       </button>
                       {passageOpen && (
-                        <div className="border-t border-emerald-200 bg-white">
-                          <div className="max-h-72 sm:max-h-96 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-                            <div
-                              dir="rtl"
-                              className="font-arabic text-right whitespace-pre-line leading-loose text-zinc-900 text-base sm:text-lg"
-                            >
-                              {passage}
-                            </div>
-                          </div>
+                        <div
+                          dir="rtl"
+                          className="font-arabic text-right whitespace-pre-line leading-loose text-zinc-900 text-base sm:text-lg"
+                        >
+                          {passage}
                         </div>
                       )}
                     </div>
