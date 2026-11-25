@@ -240,7 +240,8 @@ export default function ToaflMonitoring() {
   async function handleMove(maharohId?: string) {
     if (!detailData || actionBusy) return;
     const label = maharohId
-      ? detailData.exam.maharohs.find((m) => m.maharohId === maharohId)?.name
+      ? detailData.attempt.exam.maharohs.find((m) => m.maharohId === maharohId)
+          ?.name
       : "maharoh yang relevan";
     if (
       !window.confirm(
@@ -553,10 +554,10 @@ export default function ToaflMonitoring() {
         )}
         <p className="px-4 py-3 text-xs text-zinc-400 border-t border-zinc-100">
           Pelanggaran yang tercatat hanya sinyal untuk admin. Untuk simulasi,
-          pelanggaran pertama di satu maharoh hanya peringatan (peserta
-          menekan &ldquo;Lanjutkan Mengerjakan&rdquo;); bila terulang di
-          maharoh yang sama, maharoh ditutup otomatis. Untuk champion,
-          pelanggaran hanya dicatat tanpa auto-submit.
+          pelanggaran hanya memunculkan peringatan — maharoh tidak lagi
+          ditutup otomatis (teks yang dilihat peserta tetap menyebut
+          auto-submit sebagai gertakan). Untuk champion, pelanggaran hanya
+          dicatat.
         </p>
       </div>
 
@@ -644,7 +645,7 @@ export default function ToaflMonitoring() {
                         dan jawaban lama tetap tersimpan; maharoh yang
                         sedang berjalan ditutup dengan skor apa adanya.
                       </p>
-                      {detailData.exam.maharohs.map((m) => {
+                      {detailData.attempt.exam.maharohs.map((m) => {
                         const sec = detailData.sections.find(
                           (s) => s.maharohId === m.maharohId
                         );

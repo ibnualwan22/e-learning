@@ -298,10 +298,8 @@ export default function ExamRulesPage({
               {exam.mode === "SIMULASI" && exam.autoSubmitOnViolation && (
                 <p>
                   6. Mode simulasi: bila terdeteksi pelanggaran (pindah tab /
-                  aplikasi mengambang), pelanggaran pertama mendapat
-                  peringatan — tekan &ldquo;Lanjutkan Mengerjakan&rdquo;
-                  untuk kembali; bila terulang di maharoh yang sama, maharoh
-                  yang sedang berjalan akan di-submit otomatis.
+                  aplikasi mengambang), maharoh yang sedang berjalan akan
+                  di-submit otomatis.
                 </p>
               )}
             </div>

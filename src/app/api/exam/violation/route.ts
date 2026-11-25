@@ -1,33 +1,29 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import {
-  advanceAfterSection,
-  buildAttemptState,
-  finalizeSection,
-} from "@/lib/toafl-exam";
+import { buildAttemptState } from "@/lib/toafl-exam";
 
 // TOAFL Fase 5 — endpoint laporan pelanggaran dari detektor klien.
 // POST { attemptId, type: TAB_CLOSE | FLOATING_APP | BLUR, detail? }.
 // Body dibaca sebagai teks lalu JSON.parse supaya pengiriman
 // navigator.sendBeacon (pagehide/tab ditutup) tetap terbaca.
 //
-// Perilaku SIMULASI (autoSubmitOnViolation): pelanggaran PERTAMA di satu
-// maharoh hanya PERINGATAN — maharoh tetap berjalan, waktu tetap jalan,
-// peserta menekan "Lanjutkan Mengerjakan" untuk kembali. Pelanggaran
-// KEDUA di maharoh yang sama (di luar jendela gema) menutup maharoh itu
-// otomatis (finalizeSection SUBMITTED + advanceAfterSection). CHAMPION
-// (autoSubmitOnViolation false) tetap hanya dicatat, tanpa peringatan
-// maupun auto-submit.
+// Perilaku: pelanggaran dicatat di ViolationEvent. SIMULASI
+// (autoSubmitOnViolation): pelanggaran HANYA memunculkan peringatan —
+// logika auto-submit DIHAPUS (keputusan user 25 Nov 2026). Maharoh tetap
+// berjalan, waktu tetap jalan. CHAMPION (autoSubmitOnViolation false):
+// tetap hanya dicatat, tanpa peringatan.
+//
+// TULISAN GERTAKAN: teks yang dilihat peserta (tata tertib + modal
+// peringatan) tetap menyebut auto-submit — itu sengaja, supaya peserta
+// tetap mengira maharoh akan ditutup otomatis. Jangan "memperbaiki"
+// teks itu tanpa perintah user.
 //
 // Idempotensi PER MAHAROH (perbaikan bug 24 Nov 2026): satu pindah tab
 // memicu beberapa event browser (blur + visibilitychange + pagehide)
 // hampir bersamaan — laporan yang tiba <10 detik sesudah pelanggaran
 // terakhir di maharoh yang sama adalah gema kejadian itu, diabaikan
-// supaya satu pindah tab tidak dihitung dua kali (peringatan + tutup).
-// Laporan sesudah jendela itu adalah kejadian baru.
-// finalizeSection sendiri juga idempotent (section yang sudah bukan
-// IN_PROGRESS tidak disentuh lagi).
+// supaya satu pindah tab tidak tercatat dua kali.
 const VALID_TYPES = ["TAB_CLOSE", "FLOATING_APP", "BLUR"] as const;
 type ViolationType = (typeof VALID_TYPES)[number];
 
@@ -114,29 +110,15 @@ export async function POST(req: Request) {
       },
     });
 
-    // Hitung kejadian di maharoh ini (di luar jendela gema).
-    const countForSection = target
-      ? await prisma.violationEvent.count({
-          where: { attemptId, sectionId: target.id },
-        })
-      : 0;
-
-    let warn = false;
-    let autoSubmitted = false;
-    if (attempt.exam.autoSubmitOnViolation && target) {
-      if (countForSection <= 1) {
-        // Pelanggaran pertama di maharoh ini: peringatan saja. Maharoh
-        // tetap berjalan dan waktu tetap jalan (tidak ada perpanjangan).
-        warn = true;
-      } else {
-        await finalizeSection(target.id, "SUBMITTED");
-        await advanceAfterSection(attempt.id);
-        autoSubmitted = true;
-      }
-    }
+    // SIMULASI: pelanggaran HANYA peringatan — logika auto-submit
+    // dihapus (keputusan user 25 Nov 2026). Maharoh tetap berjalan, waktu
+    // tetap jalan. CHAMPION: tetap hanya dicatat, tanpa peringatan.
+    // autoSubmitted: false dipertahankan di respons supaya klien lama
+    // (yang sudah memuat halaman sebelum deploy) berperilaku sama.
+    const warn = Boolean(attempt.exam.autoSubmitOnViolation && target);
 
     const state = await buildAttemptState(attempt.id);
-    return NextResponse.json({ ok: true, warn, autoSubmitted, state });
+    return NextResponse.json({ ok: true, warn, autoSubmitted: false, state });
   } catch (error) {
     console.error("Report TOAFL violation error:", error);
     return NextResponse.json(
