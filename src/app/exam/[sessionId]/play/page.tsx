@@ -215,6 +215,7 @@ export default function ExamPlayPage({
   // fullscreenchange; iPhone Safari tidak mendukung API ini (nilai tetap false).
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenSupported, setFullscreenSupported] = useState(false);
+  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
 
   const autoSubmitRef = useRef(false);
   const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -328,9 +329,43 @@ export default function ExamPlayPage({
     void loadState(false);
   }, [loadState]);
 
-  // Audio diunduh saat peserta menekan putar untuk soal itu (tidak ada
-  // preload di muka — supaya koneksi lambat tidak macet mengunduh semua
-  // file audio maharoh sekaligus).
+  // Preload semua audio maharoh berjalan saat section dimuat, supaya
+  // putaran pertama tidak macet. Durasi dibaca dari metadata elemen yang
+  // sama (untuk label "Durasi ±N mnt" di kotak audio).
+  const [audioDurations, setAudioDurations] = useState<
+    Record<string, number>
+  >({});
+  useEffect(() => {
+    const urls = new Set<string>();
+    for (const q of questions) {
+      if (q.audioUrl) urls.add(q.audioUrl);
+      for (const o of q.options) {
+        if (o.audioUrl) urls.add(o.audioUrl);
+      }
+    }
+    for (const url of urls) {
+      let el = audioElsRef.current[url];
+      if (!el) {
+        el = new Audio(url);
+        el.preload = "auto";
+        el.addEventListener("loadedmetadata", () => {
+          if (Number.isFinite(el.duration) && el.duration > 0) {
+            setAudioDurations((prev) =>
+              prev[url] === el.duration
+                ? prev
+                : { ...prev, [url]: el.duration }
+            );
+          }
+        });
+        audioElsRef.current[url] = el;
+      }
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        setAudioDurations((prev) =>
+          prev[url] === el.duration ? prev : { ...prev, [url]: el.duration }
+        );
+      }
+    }
+  }, [questions, currentSectionId]);
 
   // Reset penanda waktu habis saat attempt/section berganti.
   useEffect(() => {
@@ -520,9 +555,38 @@ export default function ExamPlayPage({
     }
   }, [attemptStatus]);
 
-  // Wake Lock DIHAPUS 25 Nov (perintah user, saat diagnosis halaman play
-  // yang tidak bisa dimuat) — layar bisa tidur bila peserta tidak menyentuh
-  // HP; bisa dihidupkan lagi nanti.
+  // Wake Lock ala Siakad Usbu — cegah layar tidur selama ujian.
+  useEffect(() => {
+    if (attemptStatus !== "IN_PROGRESS") return;
+    let cancelled = false;
+    const requestLock = async () => {
+      try {
+        const nav = navigator as unknown as {
+          wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> };
+        };
+        if (nav.wakeLock && !wakeLockRef.current) {
+          const lock = await nav.wakeLock.request("screen");
+          if (!cancelled) wakeLockRef.current = lock;
+          else void lock.release().catch(() => {});
+        }
+      } catch {
+        // Tidak didukung / ditolak: lanjut tanpa Wake Lock.
+      }
+    };
+    void requestLock();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void requestLock();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      if (wakeLockRef.current) {
+        void wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+    };
+  }, [attemptStatus]);
 
   // TOAFL Fase 5 — detektor pelanggaran di klien. visibilitychange
   // (tab disembunyikan/pindah) + blur (jendela kehilangan fokus) +
@@ -901,9 +965,19 @@ export default function ExamPlayPage({
     return map;
   }, [questions]);
 
+  // Durasi audio dalam menit (dibulatkan) — tampil sebagai "±N mnt".
+  function formatAudioDuration(sec: number | undefined): string | null {
+    if (sec === undefined || !Number.isFinite(sec) || sec <= 0) return null;
+    if (sec < 60) return `±${Math.round(sec)} dtk`;
+    return `±${Math.round(sec / 60)} mnt`;
+  }
+
   const currentAudioGroup = currentQuestion?.audioUrl
     ? audioGroups.get(currentQuestion.audioUrl)
     : undefined;
+  const currentAudioDuration = currentQuestion?.audioUrl
+    ? formatAudioDuration(audioDurations[currentQuestion.audioUrl])
+    : null;
 
   // Grid nomor soal — dipakai di sidebar desktop dan lembar bawah HP.
   const renderNumberGrid = (onPick?: () => void) => (
@@ -1179,6 +1253,11 @@ export default function ExamPlayPage({
                             {currentAudioGroup.count > 1
                               ? `${currentAudioGroup.from}-${currentAudioGroup.to}`
                               : `${currentAudioGroup.from}`}
+                          </span>
+                        )}
+                        {currentAudioDuration && (
+                          <span className="text-zinc-600">
+                            · Durasi {currentAudioDuration}
                           </span>
                         )}
                       </div>
