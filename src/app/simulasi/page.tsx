@@ -225,7 +225,9 @@ export default function SimulasiPage() {
                   href={
                     exam.attempt?.status === "IN_PROGRESS"
                       ? `/exam/${exam.attempt.id}/play`
-                      : `/exam/${exam.id}/rules`
+                      : exam.attempt
+                        ? `/hasil/${exam.attempt.id}`
+                        : `/exam/${exam.id}/rules`
                   }
                   className="shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold"
                 >
@@ -233,7 +235,7 @@ export default function SimulasiPage() {
                   {exam.attempt?.status === "IN_PROGRESS"
                     ? "Lanjutkan Mengerjakan"
                     : exam.attempt
-                      ? "Ulangi Simulasi"
+                      ? "Lihat Hasil"
                       : "Mulai Ujian"}
                 </Link>
               </div>
