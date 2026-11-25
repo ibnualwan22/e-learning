@@ -254,9 +254,11 @@ export default function ChampionPage() {
                   </div>
                   <Link
                     href={
-                      exam.attempt
-                        ? `/exam/${exam.attempt.id}/play`
-                        : `/exam/${exam.id}/rules`
+                      exam.attempt?.status === "IN_PROGRESS"
+                        ? `/ujian-ringan/${exam.attempt.id}`
+                        : exam.attempt
+                          ? `/hasil/${exam.attempt.id}`
+                          : `/exam/${exam.id}/rules`
                     }
                     className="shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold"
                   >
