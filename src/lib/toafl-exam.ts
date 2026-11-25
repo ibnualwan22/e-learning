@@ -360,6 +360,29 @@ export async function buildAttemptState(attemptId: string) {
         ) ?? null)
       : null;
 
+  // Audio bersama: bila beberapa soal di maharoh berjalan memakai URL audio
+  // soal yang sama, angka yang dikembalikan untuk tiap soal kelompok itu
+  // adalah JUMLAH putaran seluruh kelompok — supaya tombol di semua soal
+  // itu konsisten (sisa jatah sama, habis bersamaan).
+  const sharedAudioCounts = new Map<string, number>();
+  if (currentSection) {
+    const snap = currentSection.snapshot as unknown as SectionSnapshot;
+    const byUrl = new Map<string, string[]>();
+    for (const q of snap.questions) {
+      if (!q.audioUrl) continue;
+      const ids = byUrl.get(q.audioUrl);
+      if (ids) ids.push(q.id);
+      else byUrl.set(q.audioUrl, [q.id]);
+    }
+    for (const ids of byUrl.values()) {
+      if (ids.length < 2) continue;
+      const sum = attempt.answers
+        .filter((a) => ids.includes(a.questionId))
+        .reduce((total, a) => total + (a.audioPlayCount ?? 0), 0);
+      for (const id of ids) sharedAudioCounts.set(id, sum);
+    }
+  }
+
   const sections = attempt.sections.map((s) => {
     const snap = s.snapshot as unknown as SectionSnapshot;
     return {
@@ -428,7 +451,7 @@ export async function buildAttemptState(attemptId: string) {
       selectedOptionId: a.selectedOptionId,
       isDoubtful: a.isDoubtful,
       answeredAt: a.answeredAt,
-      audioPlayCount: a.audioPlayCount,
+      audioPlayCount: sharedAudioCounts.get(a.questionId) ?? a.audioPlayCount,
     })),
   };
 }

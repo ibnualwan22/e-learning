@@ -169,9 +169,13 @@ export default function LoginPage() {
       {/* Right Login Form */}
       <div className="order-1 lg:order-2 lg:w-5/12 flex items-center justify-center p-6 sm:p-12 bg-zinc-50 text-zinc-900">
         <div className="w-full max-w-md bg-white rounded-xl shadow-lg border border-zinc-200/80 p-8">
-          <div className="h-16 w-16 mx-auto mb-4 rounded-2xl bg-yellow-600 text-white flex items-center justify-center font-black text-3xl">
-            T
-          </div>
+          <img
+            src="/logo-markaz-wide.png"
+            alt="Markaz Arabiyah"
+            width={320}
+            height={90}
+            className="mx-auto mb-6 h-auto w-full max-w-[320px]"
+          />
           <div className="mb-6">
             <h2 className="text-2xl font-bold text-zinc-900">
               Masuk ke Akun Anda

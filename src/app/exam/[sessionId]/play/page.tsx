@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, use, useRef } from "react";
+import { useEffect, useState, useCallback, use, useRef, useMemo } from "react";
 import { renderRichText } from "@/lib/safeHtml";
 import { getTextDirection } from "@/lib/text-direction";
 import { normalizeSectionScore } from "@/lib/toafl-score";
@@ -330,7 +330,11 @@ export default function ExamPlayPage({
   }, [loadState]);
 
   // Preload semua audio maharoh berjalan saat section dimuat, supaya
-  // putaran pertama tidak macet.
+  // putaran pertama tidak macet. Durasi dibaca dari metadata elemen yang
+  // sama (untuk label "Durasi ±N mnt" di kotak audio).
+  const [audioDurations, setAudioDurations] = useState<
+    Record<string, number>
+  >({});
   useEffect(() => {
     const urls = new Set<string>();
     for (const q of questions) {
@@ -340,10 +344,25 @@ export default function ExamPlayPage({
       }
     }
     for (const url of urls) {
-      if (!audioElsRef.current[url]) {
-        const el = new Audio(url);
+      let el = audioElsRef.current[url];
+      if (!el) {
+        el = new Audio(url);
         el.preload = "auto";
+        el.addEventListener("loadedmetadata", () => {
+          if (Number.isFinite(el.duration) && el.duration > 0) {
+            setAudioDurations((prev) =>
+              prev[url] === el.duration
+                ? prev
+                : { ...prev, [url]: el.duration }
+            );
+          }
+        });
         audioElsRef.current[url] = el;
+      }
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        setAudioDurations((prev) =>
+          prev[url] === el.duration ? prev : { ...prev, [url]: el.duration }
+        );
       }
     }
   }, [questions, currentSectionId]);
@@ -706,41 +725,46 @@ export default function ExamPlayPage({
 
   // Audio: minta izin putar ke server DULU (server menghitung + menegakkan
   // batas). Baru bila diizinkan, putar dari awal tanpa seek (tanpa kontrol
-  // bawaan browser, jadi tidak ada cara seek dari UI).
+  // bawaan browser, jadi tidak ada cara seek dari UI). URL dikirim supaya
+  // server tahu audio mana yang diputar; angka baru berlaku untuk seluruh
+  // soal yang berbagi URL itu (audio bersama).
   async function playAudio(questionId: string, url: string) {
     if (!attempt || attempt.status !== "IN_PROGRESS") return;
     if (playingUrl) return;
     setAudioError(null);
+    // Soal-soal yang berbagi URL audio soal yang sama memakai satu counter.
+    const isQuestionAudio = questions.some((q) => q.audioUrl === url);
+    const affectedIds = isQuestionAudio
+      ? questions.filter((q) => q.audioUrl === url).map((q) => q.id)
+      : [questionId];
+    const applyCount = (count: number | undefined) =>
+      setAnswers((prev) => {
+        const next = { ...prev };
+        for (const id of affectedIds) {
+          next[id] = {
+            selectedOptionId: next[id]?.selectedOptionId ?? null,
+            isDoubtful: next[id]?.isDoubtful ?? false,
+            audioPlayCount: count ?? next[id]?.audioPlayCount ?? 0,
+          };
+        }
+        return next;
+      });
     try {
       const res = await fetch("/api/exam/audio-play", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attemptId: attempt.id, questionId }),
+        body: JSON.stringify({ attemptId: attempt.id, questionId, url }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.allowed) {
-        setAnswers((prev) => ({
-          ...prev,
-          [questionId]: {
-            selectedOptionId: prev[questionId]?.selectedOptionId ?? null,
-            isDoubtful: prev[questionId]?.isDoubtful ?? false,
-            audioPlayCount: data.count ?? prev[questionId]?.audioPlayCount ?? 0,
-          },
-        }));
+        applyCount(data.count);
         setAudioError(
           data.error || "Batas pengulangan audio sudah habis untuk soal ini."
         );
         return;
       }
 
-      setAnswers((prev) => ({
-        ...prev,
-        [questionId]: {
-          selectedOptionId: prev[questionId]?.selectedOptionId ?? null,
-          isDoubtful: prev[questionId]?.isDoubtful ?? false,
-          audioPlayCount: data.count,
-        },
-      }));
+      applyCount(data.count);
 
       const el = audioElsRef.current[url] ?? new Audio(url);
       audioElsRef.current[url] = el;
@@ -913,6 +937,47 @@ export default function ExamPlayPage({
 
   const currentMaharoh = maharohs.find((m) => m.id === attempt.currentMaharohId);
   const audioLimit = currentMaharoh?.audioRepeats ?? 2;
+
+  // Info audio bersama per URL (di maharoh berjalan): nomor audio (urutan
+  // kemunculan pertama), rentang nomor soal yang memakai URL itu, dan
+  // berapa soal yang berbagi. Nomor soal = posisi di maharoh (1-based),
+  // sama dengan nomor di grid soal.
+  const audioGroups = useMemo(() => {
+    const map = new Map<
+      string,
+      { index: number; from: number; to: number; count: number }
+    >();
+    questions.forEach((q, i) => {
+      if (!q.audioUrl) return;
+      const existing = map.get(q.audioUrl);
+      if (existing) {
+        existing.to = i + 1;
+        existing.count += 1;
+      } else {
+        map.set(q.audioUrl, {
+          index: map.size + 1,
+          from: i + 1,
+          to: i + 1,
+          count: 1,
+        });
+      }
+    });
+    return map;
+  }, [questions]);
+
+  // Durasi audio dalam menit (dibulatkan) — tampil sebagai "±N mnt".
+  function formatAudioDuration(sec: number | undefined): string | null {
+    if (sec === undefined || !Number.isFinite(sec) || sec <= 0) return null;
+    if (sec < 60) return `±${Math.round(sec)} dtk`;
+    return `±${Math.round(sec / 60)} mnt`;
+  }
+
+  const currentAudioGroup = currentQuestion?.audioUrl
+    ? audioGroups.get(currentQuestion.audioUrl)
+    : undefined;
+  const currentAudioDuration = currentQuestion?.audioUrl
+    ? formatAudioDuration(audioDurations[currentQuestion.audioUrl])
+    : null;
 
   // Grid nomor soal — dipakai di sidebar desktop dan lembar bawah HP.
   const renderNumberGrid = (onPick?: () => void) => (
@@ -1172,38 +1237,63 @@ export default function ExamPlayPage({
 
                   {/* Audio soal (bila ada) */}
                   {currentQuestion.audioUrl && (
-                    <div className="mt-4 flex items-center gap-3 p-4 rounded-xl border border-zinc-200 bg-zinc-50">
-                      <button
-                        type="button"
-                        disabled={
-                          isTimeUp ||
-                          playingUrl !== null ||
-                          currentAnswer.audioPlayCount >= audioLimit
-                        }
-                        onClick={() =>
-                          void playAudio(
-                            currentQuestion.id,
-                            currentQuestion.audioUrl as string
-                          )
-                        }
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
-                      >
-                        {playingUrl === currentQuestion.audioUrl ? (
-                          <>
-                            <Volume2 className="w-4 h-4 animate-pulse" />
-                            Memutar...
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-4 h-4 fill-current" />
-                            Putar Audio Soal
-                          </>
+                    <div className="mt-4 p-4 rounded-xl border border-zinc-200 bg-zinc-50 space-y-2.5">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                        <span className="font-bold text-zinc-900">
+                          Audio {currentAudioGroup?.index ?? "–"}
+                        </span>
+                        {currentAudioGroup && currentAudioGroup.count > 1 && (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-900 font-semibold">
+                            Audio bersama
+                          </span>
                         )}
-                      </button>
-                      <span className="text-xs text-zinc-600">
-                        Diputar {currentAnswer.audioPlayCount}/{audioLimit}x
-                        (dari awal, tanpa seek)
-                      </span>
+                        {currentAudioGroup && (
+                          <span className="text-zinc-600">
+                            untuk Soal{" "}
+                            {currentAudioGroup.count > 1
+                              ? `${currentAudioGroup.from}-${currentAudioGroup.to}`
+                              : `${currentAudioGroup.from}`}
+                          </span>
+                        )}
+                        {currentAudioDuration && (
+                          <span className="text-zinc-600">
+                            · Durasi {currentAudioDuration}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={
+                            isTimeUp ||
+                            playingUrl !== null ||
+                            currentAnswer.audioPlayCount >= audioLimit
+                          }
+                          onClick={() =>
+                            void playAudio(
+                              currentQuestion.id,
+                              currentQuestion.audioUrl as string
+                            )
+                          }
+                          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
+                        >
+                          {playingUrl === currentQuestion.audioUrl ? (
+                            <>
+                              <Volume2 className="w-4 h-4 animate-pulse" />
+                              Memutar...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 fill-current" />
+                              Putar Audio Soal
+                            </>
+                          )}
+                        </button>
+                        <span className="text-xs text-zinc-600">
+                          Diputar {currentAnswer.audioPlayCount}/{audioLimit}x
+                          (dari awal, tanpa seek)
+                        </span>
+                      </div>
                     </div>
                   )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -381,6 +381,26 @@ export default function AdminBankSoalPage() {
     return matchLevel && matchMaharoh && matchSearch;
   });
 
+  // Rentang audio bersama: soal-soal yang memakai URL audio yang sama.
+  // Nomornya mengikuti # yang tampil (posisi di daftar yang difilter).
+  const audioRanges = useMemo(() => {
+    const map = new Map<string, number[]>();
+    filteredQuestions.forEach((q, idx) => {
+      if (!q.audioUrl) return;
+      const arr = map.get(q.audioUrl);
+      if (arr) arr.push(idx + 1);
+      else map.set(q.audioUrl, [idx + 1]);
+    });
+    return map;
+  }, [filteredQuestions]);
+
+  const sharedAudioLabel = (url: string | null): string | null => {
+    if (!url) return null;
+    const nums = audioRanges.get(url);
+    if (!nums || nums.length < 2) return null;
+    return `Audio bersama · Soal ${Math.min(...nums)}-${Math.max(...nums)}`;
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -623,6 +643,11 @@ export default function AdminBankSoalPage() {
                 <div className="flex items-center gap-2 text-xs text-zinc-600">
                   <Volume2 className="w-4 h-4" />
                   <audio controls src={q.audioUrl} className="h-9 flex-1" />
+                  {sharedAudioLabel(q.audioUrl) && (
+                    <span className="shrink-0 px-2 py-1 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 font-semibold">
+                      {sharedAudioLabel(q.audioUrl)}
+                    </span>
+                  )}
                 </div>
               )}
 

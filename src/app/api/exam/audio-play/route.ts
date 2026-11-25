@@ -6,10 +6,17 @@ import {
   type SectionSnapshot,
 } from "@/lib/toafl-exam";
 
-// TOAFL Fase 4 — hitung putaran audio di server (§8 plan): klien hanya
-// meminta izin putar; server yang menghitung dan menegakkan batas
-// audioRepeats per maharoh. Satu counter per soal (audio soal + audio
-// opsi soal itu berbagi batas). Melewati batas -> tombol nonaktif.
+// TOAFL Fase 4 + audio bersama — hitung putaran audio di server (§8 plan):
+// klien hanya meminta izin putar; server yang menghitung dan menegakkan
+// batas audioRepeats per maharoh.
+// - Audio SOAL yang URL-nya dipakai beberapa soal sekaligus (audio cerita
+//   Istima'): SATU counter bersama per URL — jumlah putaran di semua soal
+//   kelompok itu. Batas 2x berlaku untuk audionya, bukan per soal.
+// - Audio OPSI: counter tetap per soal (satu baris counter per soal).
+//   Catatan: satu soal tidak pernah punya audio soal bersama + audio opsi
+//   sekaligus di bank saat ini, jadi putaran opsi tidak pernah menggerus
+//   jatah audio bersama.
+// Melewati batas -> tombol nonaktif.
 export async function POST(req: Request) {
   const userSession = await getSession();
   if (!userSession) {
@@ -17,7 +24,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { attemptId, questionId } = await req.json();
+    const { attemptId, questionId, url } = await req.json();
 
     let attempt = await prisma.attempt.findUnique({
       where: { id: attemptId },
@@ -92,13 +99,37 @@ export async function POST(req: Request) {
     );
     const limit = examMaharoh?.audioRepeats ?? 2;
 
-    const existing = await prisma.attemptAnswer.findUnique({
-      where: {
-        attemptId_questionId: { attemptId, questionId },
-      },
-      select: { audioPlayCount: true },
+    // URL yang diputar harus milik soal ini (audio soal atau salah satu opsi).
+    const playedUrl =
+      typeof url === "string" && url ? url : snapQuestion.audioUrl;
+    const isQuestionAudio =
+      Boolean(snapQuestion.audioUrl) && playedUrl === snapQuestion.audioUrl;
+    const isOptionAudio = snapQuestion.options.some(
+      (o) => o.audioUrl === playedUrl
+    );
+    if (!isQuestionAudio && !isOptionAudio) {
+      return NextResponse.json(
+        { error: "Audio tidak ada di soal ini" },
+        { status: 400 }
+      );
+    }
+
+    // Kelompok soal yang berbagi URL audio soal yang sama (di maharoh
+    // berjalan). Audio opsi tidak dibagi: kelompoknya hanya soal ini.
+    const groupIds = isQuestionAudio
+      ? snapshot.questions
+          .filter((q) => q.audioUrl === playedUrl)
+          .map((q) => q.id)
+      : [questionId];
+    const shared = groupIds.length > 1;
+
+    // Jumlah putaran = jumlah seluruh baris kelompok itu (satu baris per
+    // soal; putaran dari soal mana pun menambah total kelompok).
+    const agg = await prisma.attemptAnswer.aggregate({
+      where: { attemptId, questionId: { in: groupIds } },
+      _sum: { audioPlayCount: true },
     });
-    const count = existing?.audioPlayCount ?? 0;
+    const count = agg._sum.audioPlayCount ?? 0;
     if (count >= limit) {
       return NextResponse.json(
         {
@@ -107,12 +138,14 @@ export async function POST(req: Request) {
           count,
           remaining: 0,
           limit,
+          shared,
         },
         { status: 403 }
       );
     }
 
-    const row = await prisma.attemptAnswer.upsert({
+    // Putaran dicatat di baris soal yang memutar — jumlah kelompok naik 1.
+    await prisma.attemptAnswer.upsert({
       where: {
         attemptId_questionId: { attemptId, questionId },
       },
@@ -127,9 +160,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       allowed: true,
-      count: row.audioPlayCount,
-      remaining: Math.max(0, limit - row.audioPlayCount),
+      count: count + 1,
+      remaining: Math.max(0, limit - (count + 1)),
       limit,
+      shared,
     });
   } catch (error) {
     console.error("TOAFL audio-play error:", error);

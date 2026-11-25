@@ -129,6 +129,13 @@ export default function SimulasiPage() {
             className="flex items-center gap-2 text-sm font-bold text-zinc-700 hover:text-zinc-900"
           >
             <ArrowLeft className="w-4 h-4" />
+            <img
+              src="/logo-markaz-emblem.png"
+              alt="Logo Markaz Arabiyah"
+              width={28}
+              height={28}
+              className="h-7 w-7 shrink-0 object-contain"
+            />
             E-learning Markaz Arabiyah
           </Link>
           <Link
