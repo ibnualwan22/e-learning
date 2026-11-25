@@ -192,6 +192,11 @@ export default function ExamPlayPage({
   const [currentSectionId, setCurrentSectionId] = useState<string | null>(null);
   const [currentMaharohName, setCurrentMaharohName] = useState("");
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
+  // Teks bacaan Qira'ah (dari deskripsi Maharoh, via state) — tampil di
+  // atas soal selama maharoh Qira'ah berjalan. Default terbuka; peserta
+  // bisa menutupnya bila ingin fokus ke soal.
+  const [passage, setPassage] = useState<string | null>(null);
+  const [passageOpen, setPassageOpen] = useState(true);
   const [answers, setAnswers] = useState<Record<string, AnswerState>>({});
   const [currentIdx, setCurrentIdx] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
@@ -279,14 +284,17 @@ export default function ExamPlayPage({
           setCurrentSectionId(cs.id);
           setCurrentMaharohName(cs.maharohName);
           setQuestions(cs.questions || []);
+          setPassage(cs.passage ?? null);
           const serverNow = new Date(data.serverTime).getTime();
           const expiry = new Date(cs.expiresAt).getTime();
           setRemainingSeconds(
             Math.max(0, Math.floor((expiry - serverNow) / 1000))
           );
           if (isNewSection) {
-            // Baru masuk maharoh (atau pindah maharoh): mulai dari soal 1.
+            // Baru masuk maharoh (atau pindah maharoh): mulai dari soal 1
+            // dan buka lagi teks bacaan.
             setCurrentIdx(0);
+            setPassageOpen(true);
           } else {
             // Sinkronisasi berkala di maharoh yang sama: pertahankan
             // posisi soal, jepit saja bila jumlah soal menyusut.
@@ -298,6 +306,7 @@ export default function ExamPlayPage({
           loadedSectionIdRef.current = null;
           setCurrentSectionId(null);
           setQuestions([]);
+          setPassage(null);
           setRemainingSeconds(null);
         }
 
@@ -1258,6 +1267,43 @@ export default function ExamPlayPage({
 
                 {/* Question Content */}
                 <div className="p-6 sm:p-8">
+                  {/* Teks bacaan Qira'ah — tampil di semua soal maharoh
+                      Qira'ah. Kartu bisa ditutup/dibuka; isi bisa di-scroll
+                      supaya soal tetap terjangkau di HP. */}
+                  {passage && (
+                    <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50/60 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setPassageOpen((v) => !v)}
+                        className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="font-bold text-emerald-900 text-sm sm:text-base">
+                            Teks Bacaan
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-semibold shrink-0">
+                            Qira&apos;ah
+                          </span>
+                        </span>
+                        <span className="text-xs font-semibold text-emerald-800 shrink-0">
+                          {passageOpen ? "Sembunyikan ▲" : "Tampilkan ▼"}
+                        </span>
+                      </button>
+                      {passageOpen && (
+                        <div className="border-t border-emerald-200 bg-white">
+                          <div className="max-h-72 sm:max-h-96 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+                            <div
+                              dir="rtl"
+                              className="font-arabic text-right whitespace-pre-line leading-loose text-zinc-900 text-base sm:text-lg"
+                            >
+                              {passage}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div
                     dir={questionDirection === "RTL" ? "rtl" : "ltr"}
                     className={`p-6 rounded-xl bg-amber-50/40 border border-amber-200/60 text-zinc-900 whitespace-pre-line ${

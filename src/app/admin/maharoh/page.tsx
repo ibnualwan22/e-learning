@@ -191,7 +191,11 @@ export default function AdminMaharohPage() {
                     {maharoh.name}
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
-                    {maharoh.description || "-"}
+                    {maharoh.description
+                      ? maharoh.description.length > 120
+                        ? `${maharoh.description.slice(0, 120)}…`
+                        : maharoh.description
+                      : "-"}
                   </td>
                   <td className="px-4 py-3 text-center text-zinc-600">
                     {maharoh.defaultMinutes} mnt

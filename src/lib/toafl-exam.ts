@@ -419,6 +419,23 @@ export async function buildAttemptState(attemptId: string) {
     }
   }
 
+  // Teks bacaan (passage) Qira'ah: disimpan di deskripsi Maharoh (diisi
+  // lewat halaman admin Maharoh). Deskripsi pendek (label, mis.
+  // "Membaca") BUKAN bacaan — hanya deskripsi panjang yang dianggap teks
+  // bacaan, supaya maharoh lain tidak ikut menampilkan labelnya.
+  // Diambil LANGSUNG dari Maharoh (bukan snapshot) supaya section yang
+  // sudah berjalan sebelum teks diisi tetap menampilkannya.
+  const currentMaharoh = currentSection
+    ? attempt.exam.maharohs.find(
+        (m) => m.maharohId === currentSection.maharohId
+      )
+    : null;
+  const passage =
+    currentMaharoh?.maharoh.description &&
+    currentMaharoh.maharoh.description.length > 200
+      ? currentMaharoh.maharoh.description
+      : null;
+
   const sections = attempt.sections.map((s) => {
     const snap = s.snapshot as unknown as SectionSnapshot;
     return {
@@ -476,6 +493,7 @@ export async function buildAttemptState(attemptId: string) {
           status: currentSection.status,
           startedAt: currentSection.startedAt,
           expiresAt: currentSection.expiresAt,
+          passage,
           questions: stripSnapshotForClient(
             currentSection.snapshot as unknown as SectionSnapshot
           ).questions,

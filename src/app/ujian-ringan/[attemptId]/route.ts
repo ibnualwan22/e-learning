@@ -70,6 +70,19 @@ body[data-font="xlarge"] .qcontent[dir="rtl"]{font-size:30px;line-height:2}
 body[data-font="normal"] .qcontent[dir="ltr"]{font-size:16px;line-height:1.8}
 body[data-font="large"] .qcontent[dir="ltr"]{font-size:20px;line-height:1.8}
 body[data-font="xlarge"] .qcontent[dir="ltr"]{font-size:24px;line-height:1.8}
+/* Teks bacaan Qira'ah — kartu lipat di atas soal; isi bisa di-scroll. */
+.passage{flex:none;background:#fff;border:1px solid #a7f3d0;border-radius:12px;overflow:hidden}
+.passage summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;cursor:pointer;list-style:none;background:#ecfdf5;font-weight:700;font-size:14px;color:#065f46}
+.passage summary::-webkit-details-marker{display:none}
+.passage summary .tag{padding:2px 8px;border-radius:999px;background:#d1fae5;border:1px solid #6ee7b7;color:#065f46;font-size:12px;font-weight:600}
+.passage summary .chev{transition:transform .2s;font-size:12px}
+.passage[open ] summary .chev{transform:rotate(180deg)}
+.passage .pbody{max-height:288px;overflow-y:auto;padding:20px 24px;border-top:1px solid #a7f3d0;background:#fff}
+.passage .ptext{font-family:'Amiri','Traditional Arabic',serif;text-align:right;direction:rtl;white-space:pre-line;line-height:2;color:#18181b}
+body[data-font="normal"] .passage .ptext{font-size:20px}
+body[data-font="large"] .passage .ptext{font-size:24px}
+body[data-font="xlarge"] .passage .ptext{font-size:30px}
+@media(min-width:640px){.passage .pbody{max-height:384px}}
 body[data-font="normal"] .opt .txt[dir="rtl"]{font-size:18px;line-height:1.8}
 body[data-font="large"] .opt .txt[dir="rtl"]{font-size:20px;line-height:1.8}
 body[data-font="xlarge"] .opt .txt[dir="rtl"]{font-size:24px;line-height:1.8}
@@ -511,6 +524,15 @@ export async function GET(
     })
     .join("\n");
 
+  // Teks bacaan Qira'ah — satu salinan di atas kartu soal (bukan per soal),
+  // tampil di semua soal maharoh Qira'ah; bisa dilipat lewat <details>.
+  const passageHtml = current.passage
+    ? "<details class=\"passage\" open>" +
+      "<summary><span style=\"display:flex;align-items:center;gap:8px\">Teks Bacaan <span class=\"tag\">Qira'ah</span></span><span class=\"chev\">▾</span></summary>" +
+      "<div class=\"pbody\"><div class=\"ptext\">" + esc(current.passage) + "</div></div>" +
+      "</details>"
+    : "";
+
   const body =
     "<div class=\"app\">" +
     // Top bar
@@ -531,6 +553,7 @@ export async function GET(
     "<div class=\"notice notice-red hidden\" id=\"violation-notice\"><button type=\"button\" class=\"x\" id=\"violation-close\">Tutup</button><span id=\"violation-text\"></span></div>" +
     "<div class=\"notice notice-amber hidden\" id=\"audio-error\"></div>" +
     "<div class=\"notice notice-amber hidden\" id=\"fs-banner\"><span>Mode layar penuh belum aktif — ujian lebih nyaman dalam layar penuh.</span> <button type=\"button\" class=\"abtn sm\" id=\"fs-btn\" style=\"margin-left:8px\">⛶ Masuk Fullscreen</button></div>" +
+    passageHtml +
     questionsHtml +
     // Bottom nav
     "<div class=\"bottomnav\">" +
