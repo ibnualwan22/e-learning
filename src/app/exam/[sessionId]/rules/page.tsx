@@ -70,7 +70,7 @@ export default function ExamRulesPage({
         setRegistrationStatus(data.registration?.status ?? null);
         setAttemptStatus(data.attempt?.status ?? null);
         if (data.attempt?.status === "IN_PROGRESS") {
-          router.replace(`/exam/${examId}/play`);
+          router.replace(`/exam/${data.attempt.id}/play`);
           return;
         }
         // Champion yang sudah selesai tidak bisa diulang — lihat hasil.
@@ -79,7 +79,7 @@ export default function ExamRulesPage({
           data.attempt.status !== "IN_PROGRESS" &&
           data.exam.mode === "CHAMPION"
         ) {
-          router.replace(`/exam/${examId}/play`);
+          router.replace(`/exam/${data.attempt.id}/play`);
           return;
         }
       } catch {
@@ -126,7 +126,7 @@ export default function ExamRulesPage({
         return;
       }
 
-      router.push(`/exam/${examId}/play`);
+      router.push(`/exam/${data.attemptId}/play`);
     } catch {
       setError("Gagal menghubungi server");
       setStarting(false);
