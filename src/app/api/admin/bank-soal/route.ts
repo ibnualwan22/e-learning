@@ -57,7 +57,10 @@ export async function GET(req: Request) {
       maharoh: true,
       options: { orderBy: { label: "asc" } },
     },
-    orderBy: { createdAt: "desc" },
+    // Urutan SAMAKAN dengan papan ujian (25 Nov 2026): tertua dulu,
+    // supaya #1 di bank soal = Soal 1 di papan ujian. Sebelumnya desc
+    // (terbaru dulu) sehingga soal tertua jatuh di paling bawah daftar.
+    orderBy: { createdAt: "asc" },
   });
 
   const levels = await prisma.level.findMany({
