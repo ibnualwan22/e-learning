@@ -324,7 +324,7 @@ export default function ParticipantDashboardPage() {
                     {exam.attempt?.status === "IN_PROGRESS" ? (
                       <button
                         onClick={() =>
-                          router.push(`/exam/${exam.attempt?.id}/play`)
+                          router.push(`/ujian-ringan/${exam.attempt?.id}`)
                         }
                         className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                       >
@@ -410,7 +410,7 @@ export default function ParticipantDashboardPage() {
                     <button
                       onClick={() =>
                         att.status === "IN_PROGRESS"
-                          ? router.push(`/exam/${att.id}/play`)
+                          ? router.push(`/ujian-ringan/${att.id}`)
                           : router.push(`/hasil/${att.id}`)
                       }
                       className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"

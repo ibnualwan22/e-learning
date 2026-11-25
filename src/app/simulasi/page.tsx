@@ -224,7 +224,7 @@ export default function SimulasiPage() {
                 <Link
                   href={
                     exam.attempt?.status === "IN_PROGRESS"
-                      ? `/exam/${exam.attempt.id}/play`
+                      ? `/ujian-ringan/${exam.attempt.id}`
                       : exam.attempt
                         ? `/hasil/${exam.attempt.id}`
                         : `/exam/${exam.id}/rules`
