@@ -244,7 +244,7 @@ export default async function HomePage() {
                     className="inline-flex items-center justify-center gap-3 px-8 py-4 rounded-md bg-[var(--color-surface-strong)] hover:bg-[var(--color-surface-strong-hover)] active:bg-[var(--color-surface-strong-active)] text-[var(--color-surface-base)] font-extrabold text-base tracking-wide shadow-lg transition duration-[200ms] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--color-text-tertiary)]"
                   >
                     <GraduationCap className="w-5 h-5 shrink-0" aria-hidden="true" />
-                    <span>Daftar Simulasi (Gratis)</span>
+                    <span>Daftar Simulasi Tahdid Mustawa</span>
                     <ArrowRight
                       className="w-5 h-5 shrink-0"
                       aria-hidden="true"
@@ -433,7 +433,7 @@ export default async function HomePage() {
                 <ul className="text-base text-[var(--color-text-secondary)] leading-relaxed mt-2 space-y-1.5 list-none">
                   <li className="flex gap-2">
                     <CheckCircle2 className="w-5 h-5 text-[var(--color-surface-strong)] shrink-0" aria-hidden="true" />
-                    Gratis — daftar langsung terverifikasi otomatis
+                    Tahdid Mustawa — daftar langsung terverifikasi otomatis
                   </li>
                   <li className="flex gap-2">
                     <CalendarDays className="w-5 h-5 text-[var(--color-surface-strong)] shrink-0" aria-hidden="true" />
