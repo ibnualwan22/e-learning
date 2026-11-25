@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  BookOpen,
   LogOut,
   Clock,
   CheckCircle2,
@@ -135,13 +136,9 @@ export default function ParticipantDashboardPage() {
       <header className="bg-zinc-900 text-white border-b border-zinc-800">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img
-              src="/logo-markaz-emblem.png"
-              alt="Logo Markaz Arabiyah"
-              width={36}
-              height={36}
-              className="h-9 w-9 shrink-0 object-contain"
-            />
+            <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300">
+              <BookOpen className="w-5 h-5" />
+            </div>
             <div>
               <div className="font-bold text-sm sm:text-base tracking-tight">
                 TOAFL CBT

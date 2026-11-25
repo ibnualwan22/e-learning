@@ -144,13 +144,9 @@ export default async function HomePage() {
             href="/"
             className="flex items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--color-surface-strong)] transition duration-[200ms]"
           >
-            <img
-              src="/logo-markaz-emblem.png"
-              alt="Logo Markaz Arabiyah"
-              width={44}
-              height={44}
-              className="h-9 sm:h-11 w-9 sm:w-11 shrink-0 object-contain"
-            />
+            <span className="h-9 sm:h-11 w-9 sm:w-11 shrink-0 rounded-md bg-[var(--color-surface-strong)] text-[var(--color-surface-base)] flex items-center justify-center font-black text-xl">
+              T
+            </span>
             <span className="min-w-0">
               <span className="block font-extrabold tracking-tight text-[var(--color-text-tertiary)] text-base sm:text-lg leading-tight">
                 E-LEARNING MARKAZ ARABIYAH

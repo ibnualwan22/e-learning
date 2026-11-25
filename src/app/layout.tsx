@@ -18,9 +18,6 @@ export const metadata: Metadata = {
   title: "E-learning Markaz Arabiyah — Ujian TOAFL (Simulasi & Champion)",
   description:
     "Platform ujian TOAFL berbasis komputer (CBT) Markaz Arabiyah: Simulasi dan TOAFL Champion, dengan maharoh Istima', Qawa'id, dan Qira'ah, dukungan teks Arab RTL, dan penilaian otomatis.",
-  icons: {
-    icon: "/logo-markaz-emblem.png",
-  },
 };
 
 export default function RootLayout({
