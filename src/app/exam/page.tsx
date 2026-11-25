@@ -322,25 +322,15 @@ export default function ParticipantDashboardPage() {
 
                   <div>
                     {exam.attempt?.status === "IN_PROGRESS" ? (
-                      <div className="flex flex-col gap-2">
-                        <button
-                          onClick={() =>
-                            router.push(`/exam/${exam.attempt?.id}/play`)
-                          }
-                          className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                        >
-                          <PlayCircle className="w-4 h-4" />
-                          <span>Lanjutkan Mengerjakan</span>
-                        </button>
-                        <button
-                          onClick={() =>
-                            router.push(`/ujian-ringan/${exam.attempt?.id}`)
-                          }
-                          className="w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                        >
-                          <span>Versi ringan (koneksi lambat)</span>
-                        </button>
-                      </div>
+                      <button
+                        onClick={() =>
+                          router.push(`/exam/${exam.attempt?.id}/play`)
+                        }
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <PlayCircle className="w-4 h-4" />
+                        <span>Lanjutkan Mengerjakan</span>
+                      </button>
                     ) : exam.attempt ? (
                       <button
                         onClick={() =>

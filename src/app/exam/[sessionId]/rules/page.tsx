@@ -70,7 +70,10 @@ export default function ExamRulesPage({
         setRegistrationStatus(data.registration?.status ?? null);
         setAttemptStatus(data.attempt?.status ?? null);
         if (data.attempt?.status === "IN_PROGRESS") {
-          router.replace(`/exam/${data.attempt.id}/play`);
+          // Jalur ringan (HTML polos): pakai navigasi dokumen penuh,
+          // bukan router.push — route handler mengembalikan HTML mentah,
+          // bukan payload RSC.
+          window.location.replace(`/ujian-ringan/${data.attempt.id}`);
           return;
         }
         // Champion yang sudah selesai tidak bisa diulang — lihat hasil.
@@ -79,7 +82,7 @@ export default function ExamRulesPage({
           data.attempt.status !== "IN_PROGRESS" &&
           data.exam.mode === "CHAMPION"
         ) {
-          router.replace(`/exam/${data.attempt.id}/play`);
+          window.location.replace(`/ujian-ringan/${data.attempt.id}`);
           return;
         }
       } catch {
@@ -126,7 +129,11 @@ export default function ExamRulesPage({
         return;
       }
 
-      router.push(`/exam/${data.attemptId}/play`);
+      // Jalur ringan (HTML polos): navigasi dokumen penuh. Fullscreen
+      // yang diminta dari klik ini tidak bertahan melewati muat ulang
+      // dokumen — halaman ringan menampilkan banner "Masuk Fullscreen"
+      // supaya peserta bisa masuk lagi dengan satu ketukan.
+      window.location.href = `/ujian-ringan/${data.attemptId}`;
     } catch {
       setError("Gagal menghubungi server");
       setStarting(false);
