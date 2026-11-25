@@ -215,7 +215,11 @@ export default function ExamPlayPage({
   // fullscreenchange; iPhone Safari tidak mendukung API ini (nilai tetap false).
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenSupported, setFullscreenSupported] = useState(false);
-  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
+  const wakeLockRef = useRef<{
+    release: () => Promise<void>;
+    released: boolean;
+    addEventListener: (type: string, listener: () => void) => void;
+  } | null>(null);
 
   const autoSubmitRef = useRef(false);
   const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -555,19 +559,42 @@ export default function ExamPlayPage({
     }
   }, [attemptStatus]);
 
-  // Wake Lock ala Siakad Usbu — cegah layar tidur selama ujian.
+  // Wake Lock ala Siakad Usbu — cegah layar tidur selama ujian (termasuk
+  // saat fullscreen). Perbaikan: sentinel yang sudah dilepas sistem (tab
+  // disembunyikan, penghemat baterai) WAJIB dibersihkan dari ref — kalau
+  // tidak, requestLock mengira kunci masih dipegang dan tidak pernah
+  // meminta lagi sampai ujian selesai. Akibat bug lama: sekali layar mati
+  // (maharoh ter-auto-submit lalu lanjut ke maharoh berikut), maharoh
+  // berikutnya berjalan TANPA wake lock, jadi layar bisa mati lagi.
   useEffect(() => {
     if (attemptStatus !== "IN_PROGRESS") return;
     let cancelled = false;
     const requestLock = async () => {
       try {
         const nav = navigator as unknown as {
-          wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> };
+          wakeLock?: {
+            request: (t: string) => Promise<{
+              release: () => Promise<void>;
+              released: boolean;
+              addEventListener: (type: string, listener: () => void) => void;
+            }>;
+          };
         };
+        // Sentinel yang sudah dilepas sistem bukan lagi kunci yang hidup.
+        if (wakeLockRef.current?.released) wakeLockRef.current = null;
         if (nav.wakeLock && !wakeLockRef.current) {
           const lock = await nav.wakeLock.request("screen");
-          if (!cancelled) wakeLockRef.current = lock;
-          else void lock.release().catch(() => {});
+          if (cancelled) {
+            void lock.release().catch(() => {});
+            return;
+          }
+          wakeLockRef.current = lock;
+          // Sistem bisa melepas kunci kapan saja (tab disembunyikan,
+          // penghemat baterai): bersihkan ref supaya permintaan berikutnya
+          // benar-benar meminta kunci baru.
+          lock.addEventListener("release", () => {
+            if (wakeLockRef.current === lock) wakeLockRef.current = null;
+          });
         }
       } catch {
         // Tidak didukung / ditolak: lanjut tanpa Wake Lock.
