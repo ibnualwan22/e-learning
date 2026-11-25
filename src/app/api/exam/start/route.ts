@@ -8,9 +8,10 @@ import {
 } from "@/lib/toafl-exam";
 
 // TOAFL Fase 4 — mulai ujian: buat Attempt + SectionAttempt pertama
-// (snapshot maharoh pertama). Champion sekali saja; simulasi boleh
-// membuat attempt baru tiap pengulangan. Attempt IN_PROGRESS yang masih
-// ada dikembalikan (resume), bukan dibuat baru.
+// (snapshot maharoh pertama). Champion sekali saja; simulasi sekali saja
+// — pengulangan simulasi tidak lagi dari peserta, melainkan dari admin
+// di monitoring ("Lanjutkan Ujian" / "Mulai dari Awal"). Attempt
+// IN_PROGRESS yang masih ada dikembalikan (resume), bukan dibuat baru.
 export async function POST(req: Request) {
   const userSession = await getSession();
   if (!userSession) {
@@ -98,6 +99,18 @@ export async function POST(req: Request) {
     if (existing && exam.mode === "CHAMPION") {
       return NextResponse.json(
         { error: "Anda sudah pernah mengikuti exam champion ini" },
+        { status: 400 }
+      );
+    }
+
+    // Simulasi sekali saja per peserta: pengulangan hanya lewat admin di
+    // monitoring ("Lanjutkan Ujian" / "Mulai dari Awal").
+    if (existing && exam.mode === "SIMULASI") {
+      return NextResponse.json(
+        {
+          error:
+            "Simulasi ini sudah pernah kamu ikuti. Untuk mengulang, minta admin di halaman monitoring.",
+        },
         { status: 400 }
       );
     }

@@ -209,6 +209,9 @@ export default function ExamPlayPage({
   const [audioError, setAudioError] = useState<string | null>(null);
   // TOAFL Fase 5 — pemberitahuan penutupan otomatis karena pelanggaran.
   const [violationNotice, setViolationNotice] = useState<string | null>(null);
+  const [violationWarning, setViolationWarning] = useState<string | null>(
+    null
+  );
   // Layout responsif: lembar nomor soal di HP (sidebar hanya tampil di desktop).
   const [showNumberSheet, setShowNumberSheet] = useState(false);
   // Fullscreen ala Siakad Usbu (khusus SIMULASI): dilacak lewat event
@@ -373,6 +376,7 @@ export default function ExamPlayPage({
     violationSuppressedRef.current = false;
     violationReportedRef.current = new Set();
     setIsTimeUp(false);
+    setViolationWarning(null);
     setSubmitError(null);
   }, [attempt?.id, currentSectionId]);
 
@@ -508,6 +512,22 @@ export default function ExamPlayPage({
               : `Maharoh ${currentMaharohName} ditutup otomatis karena terdeteksi pindah tab — lanjut ke maharoh berikut.`
           );
           await loadState(true);
+        }
+        if (res.ok && data.warn) {
+          // Peringatan pertama di maharoh ini: maharoh tetap berjalan,
+          // waktu tetap jalan. Izinkan laporan berikutnya untuk maharoh
+          // yang sama (pelanggaran kedua yang menutup maharoh): bersihkan
+          // kunci dedup section ini.
+          setViolationWarning(
+            type === "BLUR"
+              ? `Peringatan: jendela ujian sempat kehilangan fokus. Ini peringatan pertama untuk Maharoh ${currentMaharohName} — bila terulang, maharoh akan ditutup otomatis. Waktu tetap berjalan.`
+              : `Peringatan: terdeteksi pindah tab. Ini peringatan pertama untuk Maharoh ${currentMaharohName} — bila terulang, maharoh akan ditutup otomatis. Waktu tetap berjalan.`
+          );
+          for (const k of Array.from(violationReportedRef.current)) {
+            if (k.startsWith(`${currentSectionId}:`)) {
+              violationReportedRef.current.delete(k);
+            }
+          }
         }
       } catch {
         // abaikan — server tetap bisa menutup dari sinkronisasi berkala
@@ -1126,6 +1146,20 @@ export default function ExamPlayPage({
                   berubah, klik tombol Kumpulkan Maharoh di atas.
                 </p>
               )}
+            </div>
+          )}
+          {violationWarning && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
+              <p className="text-sm text-amber-800 font-medium">
+                {violationWarning}
+              </p>
+              <button
+                type="button"
+                onClick={() => setViolationWarning(null)}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-zinc-950 text-xs font-bold cursor-pointer"
+              >
+                Lanjutkan Mengerjakan
+              </button>
             </div>
           )}
           {violationNotice && (

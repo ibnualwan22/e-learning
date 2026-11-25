@@ -334,23 +334,12 @@ export default function ParticipantDashboardPage() {
                     ) : exam.attempt ? (
                       <button
                         onClick={() =>
-                          exam.mode === "SIMULASI"
-                            ? router.push(`/exam/${exam.id}/rules`)
-                            : router.push(`/hasil/${exam.attempt?.id}`)
+                          router.push(`/hasil/${exam.attempt?.id}`)
                         }
                         className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                       >
-                        {exam.mode === "SIMULASI" ? (
-                          <>
-                            <PlayCircle className="w-4 h-4" />
-                            <span>Ulangi Simulasi</span>
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                            <span>Lihat Hasil</span>
-                          </>
-                        )}
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span>Lihat Hasil</span>
                       </button>
                     ) : (
                       <button

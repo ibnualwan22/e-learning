@@ -12,18 +12,20 @@ import {
 // Body dibaca sebagai teks lalu JSON.parse supaya pengiriman
 // navigator.sendBeacon (pagehide/tab ditutup) tetap terbaca.
 //
-// Perilaku: pelanggaran dicatat di ViolationEvent. Bila exam
-// autoSubmitOnViolation (SIMULASI) → maharoh yang sedang berjalan
-// di-submit otomatis dan peserta lanjut ke maharoh berikut. Bila false
-// (CHAMPION) → hanya dicatat, section tetap berjalan.
+// Perilaku SIMULASI (autoSubmitOnViolation): pelanggaran PERTAMA di satu
+// maharoh hanya PERINGATAN — maharoh tetap berjalan, waktu tetap jalan,
+// peserta menekan "Lanjutkan Mengerjakan" untuk kembali. Pelanggaran
+// KEDUA di maharoh yang sama (di luar jendela gema) menutup maharoh itu
+// otomatis (finalizeSection SUBMITTED + advanceAfterSection). CHAMPION
+// (autoSubmitOnViolation false) tetap hanya dicatat, tanpa peringatan
+// maupun auto-submit.
 //
 // Idempotensi PER MAHAROH (perbaikan bug 24 Nov 2026): satu pindah tab
 // memicu beberapa event browser (blur + visibilitychange + pagehide)
-// hampir bersamaan — laporan kedua untuk maharoh yang sama diabaikan
-// supaya satu pindah tab tidak menutup dua maharoh. Sebaliknya, pindah
-// tab di maharoh BERIKUTNYA selalu ditindak: dedup lama (jenis yang
-// sama dalam 10 detik, tanpa membedakan maharoh) membuang laporan
-// kedua yang sah bila datang <10 detik setelah yang pertama.
+// hampir bersamaan — laporan yang tiba <10 detik sesudah pelanggaran
+// terakhir di maharoh yang sama adalah gema kejadian itu, diabaikan
+// supaya satu pindah tab tidak dihitung dua kali (peringatan + tutup).
+// Laporan sesudah jendela itu adalah kejadian baru.
 // finalizeSection sendiri juga idempotent (section yang sudah bukan
 // IN_PROGRESS tidak disentuh lagi).
 const VALID_TYPES = ["TAB_CLOSE", "FLOATING_APP", "BLUR"] as const;
@@ -84,16 +86,20 @@ export async function POST(req: Request) {
         s.status === "IN_PROGRESS"
     );
 
-    // Satu kejadian fisik = satu laporan per maharoh. Bila maharoh ini
-    // sudah punya pelanggaran tercatat (jenis apa pun), laporan ini
-    // adalah gema dari kejadian yang sama (blur + visibilitychange) —
-    // abaikan tanpa menutup apa pun.
+    // Satu kejadian fisik = satu laporan per maharoh. Laporan yang tiba
+    // <10 detik sesudah pelanggaran terakhir di maharoh yang sama adalah
+    // gema dari kejadian yang sama (blur + visibilitychange + pagehide) —
+    // abaikan tanpa menghitungnya sebagai pelanggaran baru.
+    const BURST_WINDOW_MS = 10_000;
     if (target) {
       const existing = await prisma.violationEvent.findFirst({
         where: { attemptId, sectionId: target.id },
         orderBy: { at: "desc" },
       });
-      if (existing) {
+      if (
+        existing &&
+        Date.now() - new Date(existing.at).getTime() < BURST_WINDOW_MS
+      ) {
         const state = await buildAttemptState(attempt.id);
         return NextResponse.json({ ok: true, duplicate: true, state });
       }
@@ -108,15 +114,29 @@ export async function POST(req: Request) {
       },
     });
 
+    // Hitung kejadian di maharoh ini (di luar jendela gema).
+    const countForSection = target
+      ? await prisma.violationEvent.count({
+          where: { attemptId, sectionId: target.id },
+        })
+      : 0;
+
+    let warn = false;
     let autoSubmitted = false;
     if (attempt.exam.autoSubmitOnViolation && target) {
-      await finalizeSection(target.id, "SUBMITTED");
-      await advanceAfterSection(attempt.id);
-      autoSubmitted = true;
+      if (countForSection <= 1) {
+        // Pelanggaran pertama di maharoh ini: peringatan saja. Maharoh
+        // tetap berjalan dan waktu tetap jalan (tidak ada perpanjangan).
+        warn = true;
+      } else {
+        await finalizeSection(target.id, "SUBMITTED");
+        await advanceAfterSection(attempt.id);
+        autoSubmitted = true;
+      }
     }
 
     const state = await buildAttemptState(attempt.id);
-    return NextResponse.json({ ok: true, autoSubmitted, state });
+    return NextResponse.json({ ok: true, warn, autoSubmitted, state });
   } catch (error) {
     console.error("Report TOAFL violation error:", error);
     return NextResponse.json(

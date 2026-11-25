@@ -42,7 +42,7 @@ interface ToaflAttemptRow {
   answeredCount: number;
   totalQuestions: number;
   violationCount: number;
-  sections: { maharohName: string; status: string; score: number }[];
+  sections: { maharohId: string; maharohName: string; status: string; score: number }[];
 }
 
 interface ToaflViolationRow {
@@ -90,10 +90,17 @@ interface DetailData {
       title: string;
       mode: string;
       level: { id: string; name: string };
+      maharohs: {
+        maharohId: string;
+        name: string;
+        orderIndex: number;
+        minutes: number;
+      }[];
     };
   };
   sections: {
     id: string;
+    maharohId: string;
     maharohName: string;
     status: string;
     startedAt: string;
@@ -161,6 +168,8 @@ export default function ToaflMonitoring() {
   const [detailData, setDetailData] = useState<DetailData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [actionMsg, setActionMsg] = useState("");
+  const [actionBusy, setActionBusy] = useState(false);
 
   // Jam server + detak 1 detik untuk hitung mundur sisa waktu yang live.
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
@@ -205,6 +214,7 @@ export default function ToaflMonitoring() {
     setDetailId(attemptId);
     setDetailData(null);
     setDetailError("");
+    setActionMsg("");
     setDetailLoading(true);
     try {
       const res = await fetch(
@@ -220,6 +230,81 @@ export default function ToaflMonitoring() {
       setDetailError("Gagal terhubung ke server");
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  // Aksi admin (SIMULASI saja): pindahkan peserta ke sebuah maharoh
+  // (Lanjutkan Ujian / ke maharoh yang terlewat atau terkunci) atau mulai
+  // dari awal (hapus attempt total). Sesudah berhasil, muat ulang detail
+  // + daftar supaya status terbaru langsung terlihat.
+  async function handleMove(maharohId?: string) {
+    if (!detailData || actionBusy) return;
+    const label = maharohId
+      ? detailData.exam.maharohs.find((m) => m.maharohId === maharohId)?.name
+      : "maharoh yang relevan";
+    if (
+      !window.confirm(
+        `Pindahkan ${detailData.attempt.user.name} ke ${label}? Maharoh yang sedang berjalan akan ditutup (skor apa adanya); maharoh tujuan dibuka dengan waktu baru dan jawaban lama tetap tersimpan.`
+      )
+    ) {
+      return;
+    }
+    setActionBusy(true);
+    setActionMsg("");
+    try {
+      const res = await fetch("/api/admin/monitoring/toafl/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId: detailData.attempt.id, maharohId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionMsg(data.error || "Gagal memindahkan peserta");
+        return;
+      }
+      setActionMsg(
+        `Peserta dipindahkan ke Maharoh ${data.maharohName}. Minta peserta membuka kembali halaman ujian.`
+      );
+      await openDetail(detailData.attempt.id);
+      await loadData(selectedExamId || undefined);
+    } catch {
+      setActionMsg("Gagal terhubung ke server");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function handleRestart() {
+    if (!detailData || actionBusy) return;
+    if (
+      !window.confirm(
+        `Mulai dari awal untuk ${detailData.attempt.user.name}? Attempt ini DIHAPUS TOTAL (jawaban, skor, dan pelanggaran ikut hilang) lalu dibuat attempt baru yang bersih. Tindakan ini tidak bisa dibatalkan.`
+      )
+    ) {
+      return;
+    }
+    setActionBusy(true);
+    setActionMsg("");
+    try {
+      const res = await fetch("/api/admin/monitoring/toafl/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId: detailData.attempt.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionMsg(data.error || "Gagal memulai ulang dari awal");
+        return;
+      }
+      setActionMsg(
+        "Attempt lama dihapus dan attempt baru sudah dibuat. Minta peserta membuka kembali halaman ujian."
+      );
+      await openDetail(data.attemptId);
+      await loadData(selectedExamId || undefined);
+    } catch {
+      setActionMsg("Gagal terhubung ke server");
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -468,9 +553,10 @@ export default function ToaflMonitoring() {
         )}
         <p className="px-4 py-3 text-xs text-zinc-400 border-t border-zinc-100">
           Pelanggaran yang tercatat hanya sinyal untuk admin. Untuk simulasi,
-          maharoh yang sedang berjalan ditutup otomatis saat pelanggaran
-          terdeteksi; untuk champion, pelanggaran hanya dicatat tanpa
-          auto-submit.
+          pelanggaran pertama di satu maharoh hanya peringatan (peserta
+          menekan &ldquo;Lanjutkan Mengerjakan&rdquo;); bila terulang di
+          maharoh yang sama, maharoh ditutup otomatis. Untuk champion,
+          pelanggaran hanya dicatat tanpa auto-submit.
         </p>
       </div>
 
@@ -545,6 +631,94 @@ export default function ToaflMonitoring() {
                         ` • ${Math.floor(detailData.attempt.timeSpentSeconds / 60)}m ${detailData.attempt.timeSpentSeconds % 60}d`}
                     </p>
                   </div>
+
+                  {/* Lanjutkan / pindah maharoh + mulai dari awal (SIMULASI) */}
+                  {detailData.attempt.exam.mode === "SIMULASI" && (
+                    <div className="space-y-2">
+                      <h3 className="font-bold text-sm text-zinc-900">
+                        Lanjutkan / Pindah Maharoh
+                      </h3>
+                      <p className="text-xs text-zinc-500">
+                        Pindahkan peserta ke maharoh yang terlewat atau
+                        terkunci. Maharoh tujuan dibuka dengan waktu baru
+                        dan jawaban lama tetap tersimpan; maharoh yang
+                        sedang berjalan ditutup dengan skor apa adanya.
+                      </p>
+                      {detailData.exam.maharohs.map((m) => {
+                        const sec = detailData.sections.find(
+                          (s) => s.maharohId === m.maharohId
+                        );
+                        const isCurrent =
+                          sec?.status === "IN_PROGRESS" &&
+                          detailData.attempt.currentMaharohId ===
+                            m.maharohId;
+                        return (
+                          <div
+                            key={m.maharohId}
+                            className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border border-zinc-200 bg-zinc-50 text-sm"
+                          >
+                            <span className="font-semibold text-zinc-800">
+                              {m.name}
+                              <span className="text-xs text-zinc-500 font-normal">
+                                {" "}
+                                •{" "}
+                                {sec
+                                  ? sec.status === "TIME_UP"
+                                    ? `waktu habis (skor ${sec.score})`
+                                    : sec.status === "SUBMITTED"
+                                      ? `dikumpulkan (skor ${sec.score})`
+                                      : "berjalan"
+                                  : "belum dimulai"}
+                              </span>
+                            </span>
+                            {!isCurrent && (
+                              <button
+                                type="button"
+                                disabled={actionBusy}
+                                onClick={() => handleMove(m.maharohId)}
+                                className="shrink-0 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+                              >
+                                Lanjutkan ke sini
+                              </button>
+                            )}
+                            {isCurrent && (
+                              <span className="text-xs font-bold text-emerald-700">
+                                Sedang dikerjakan
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() => handleMove()}
+                          className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-zinc-950 text-xs font-bold cursor-pointer"
+                        >
+                          Lanjutkan Ujian
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() => handleRestart()}
+                          className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+                        >
+                          Mulai dari Awal
+                        </button>
+                      </div>
+                      <p className="text-xs text-zinc-500">
+                        &ldquo;Mulai dari Awal&rdquo; menghapus attempt ini
+                        total (jawaban, skor, dan pelanggaran ikut hilang)
+                        lalu membuat attempt baru yang bersih.
+                      </p>
+                      {actionMsg && (
+                        <p className="text-sm text-zinc-700 font-medium">
+                          {actionMsg}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Pelanggaran attempt ini */}
                   <div className="space-y-2">

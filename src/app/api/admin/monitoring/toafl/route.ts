@@ -35,7 +35,13 @@ export async function GET(req: Request) {
           select: { id: true, username: true, name: true, institution: true },
         },
         exam: {
-          include: { level: { select: { id: true, name: true } } },
+          include: {
+            level: { select: { id: true, name: true } },
+            maharohs: {
+              include: { maharoh: { select: { id: true, name: true } } },
+              orderBy: { orderIndex: "asc" },
+            },
+          },
         },
         sections: { orderBy: { createdAt: "asc" } },
         answers: true,
@@ -111,12 +117,19 @@ export async function GET(req: Request) {
           title: attempt.exam.title,
           mode: attempt.exam.mode,
           level: attempt.exam.level,
+          maharohs: attempt.exam.maharohs.map((m) => ({
+            maharohId: m.maharohId,
+            name: m.maharoh.name,
+            orderIndex: m.orderIndex,
+            minutes: m.minutes,
+          })),
         },
       },
       sections: attempt.sections.map((s) => {
         const snap = s.snapshot as unknown as SectionSnapshot;
         return {
           id: s.id,
+          maharohId: s.maharohId,
           maharohName: snap.maharohName,
           status: s.status,
           startedAt: s.startedAt,
@@ -216,6 +229,7 @@ export async function GET(req: Request) {
       sections: a.sections.map((s) => {
         const snap = s.snapshot as unknown as SectionSnapshot;
         return {
+          maharohId: s.maharohId,
           maharohName: snap.maharohName,
           status: s.status,
           score: s.score,

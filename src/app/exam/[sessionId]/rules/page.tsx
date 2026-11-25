@@ -298,8 +298,10 @@ export default function ExamRulesPage({
               {exam.mode === "SIMULASI" && exam.autoSubmitOnViolation && (
                 <p>
                   6. Mode simulasi: bila terdeteksi pelanggaran (pindah tab /
-                  aplikasi mengambang), maharoh yang sedang berjalan akan
-                  di-submit otomatis.
+                  aplikasi mengambang), pelanggaran pertama mendapat
+                  peringatan — tekan &ldquo;Lanjutkan Mengerjakan&rdquo;
+                  untuk kembali; bila terulang di maharoh yang sama, maharoh
+                  yang sedang berjalan akan di-submit otomatis.
                 </p>
               )}
             </div>
@@ -316,8 +318,8 @@ export default function ExamRulesPage({
 
           {attemptStatus && exam.mode === "SIMULASI" && (
             <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-700 text-sm">
-              Kamu sudah pernah mengikuti simulasi ini. Memulai lagi akan
-              membuat attempt baru (simulasi boleh diulang).
+              Kamu sudah pernah mengikuti simulasi ini. Untuk mengulang,
+              minta admin di halaman monitoring.
             </div>
           )}
 
@@ -345,19 +347,23 @@ export default function ExamRulesPage({
             </div>
           </label>
 
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
-            <button
-              type="button"
-              disabled={!agreed || starting || notVerified}
-              onClick={handleStartExam}
-              className="w-full sm:w-auto px-8 py-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-zinc-700/25 transition cursor-pointer"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>
-                {starting ? "Memulai Waktu Ujian..." : "Mulai Kerjakan Sekarang"}
-              </span>
-            </button>
-          </div>
+          {/* Simulasi yang sudah selesai tidak bisa diulang dari sini —
+              pengulangan hanya lewat admin di monitoring. */}
+          {!(attemptStatus && exam.mode === "SIMULASI") && (
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={!agreed || starting || notVerified}
+                onClick={handleStartExam}
+                className="w-full sm:w-auto px-8 py-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-zinc-700/25 transition cursor-pointer"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>
+                  {starting ? "Memulai Waktu Ujian..." : "Mulai Kerjakan Sekarang"}
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

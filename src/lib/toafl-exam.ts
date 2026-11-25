@@ -267,6 +267,13 @@ export async function finalizeAttempt(
 
 // Sesudah sebuah section selesai: lanjut ke maharoh berikut (bila ada),
 // atau finalisasi attempt bila itu maharoh terakhir.
+//
+// Maharoh acuan = currentMaharohId (yang baru saja dikumpulkan), BUKAN
+// section terbaru by createdAt — sesudah admin memindahkan peserta
+// mundur ke maharoh yang terlewat/terkunci, section terbaru bukan lagi
+// yang sedang dikerjakan. Maharoh yang sudah SUBMITTED/TIME_UP dilewati
+// (nilainya dipertahankan) supaya tidak dibuat duplikat — SectionAttempt
+// unik per (attemptId, maharohId).
 export async function advanceAfterSection(attemptId: string) {
   const attempt = await prisma.attempt.findUnique({
     where: { id: attemptId },
@@ -284,17 +291,46 @@ export async function advanceAfterSection(attemptId: string) {
   });
   if (!attempt || attempt.status !== "IN_PROGRESS") return attempt;
 
-  const lastSection = attempt.sections[0] ?? null;
+  const lastSection = attempt.sections.find(
+    (s) => s.maharohId === attempt.currentMaharohId
+  ) ?? attempt.sections[0] ?? null;
   const lastMaharohId = lastSection?.maharohId ?? attempt.currentMaharohId;
   const ordered = attempt.exam.maharohs;
   const currentIdx = ordered.findIndex((m) => m.maharohId === lastMaharohId);
-  const next = ordered[currentIdx + 1];
+  // Maharoh berikut yang belum selesai (lewati yang sudah SUBMITTED /
+  // TIME_UP — mis. karena admin memindahkan peserta mundur).
+  const completedIds = new Set(
+    attempt.sections
+      .filter((s) => s.status !== "IN_PROGRESS")
+      .map((s) => s.maharohId)
+  );
+  let next;
+  for (let i = currentIdx + 1; i < ordered.length; i++) {
+    if (!completedIds.has(ordered[i].maharohId)) {
+      next = ordered[i];
+      break;
+    }
+  }
 
   if (!next) {
     return finalizeAttempt(
       attemptId,
       lastSection?.status === "TIME_UP" ? "TIME_UP" : "SUBMITTED"
     );
+  }
+
+  // Jaga-jaga: maharoh berikut sudah punya section IN_PROGRESS (tidak
+  // boleh terjadi bila hanya satu maharoh berjalan) — lanjutkan section
+  // itu, jangan buat duplikat.
+  const existingNext = attempt.sections.find(
+    (s) => s.maharohId === next.maharohId && s.status === "IN_PROGRESS"
+  );
+  if (existingNext) {
+    await prisma.attempt.update({
+      where: { id: attemptId },
+      data: { currentMaharohId: next.maharohId },
+    });
+    return prisma.attempt.findUnique({ where: { id: attemptId } });
   }
 
   await startSection(
